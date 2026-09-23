@@ -1,0 +1,113 @@
+# Mail Code Filler — 产品与实施计划
+
+更新：2026-09-23。目标是 **Gmail 与 QQ 邮箱、多账户并行监听，并可安全填入或复制新码的本机工具**。填入需要用户自行授予辅助功能权限；未授权或目标不支持时复制并提示手动粘贴。官方 AutoFill 是独立、待授权验收的可选构建，不是自用实验的前置条件。当前构建入口与操作说明见 [README.md](README.md)；代码存在、测试或编译通过不代表真实填码已经验收。
+
+## 产品目标与范围
+
+Swift 原生 macOS App 直接监听 Gmail 与 QQ 邮箱，发现邮件验证码后显示不激活的原生提示。用户点击时，在辅助功能已授权且目标文本框支持安全写入的情况下可填入；否则复制后自行粘贴，不必打开邮箱。最低 macOS 26，卡片使用透明 `NSHostingView` 与单层 SwiftUI Liquid Glass。自动复制由用户显式开启，不自动提交。
+
+支持多个 Gmail 与 QQ 邮箱账户同时监听。Google Workspace 仅在组织允许 IMAP 与应用专用密码时可用；QQ 登录使用邮箱地址和 QQ 邮箱授权码。各账户有独立会话与钥匙串凭据，候选进入同一队列和到码卡片。包含只读 INBOX、近期补查、本地识别与可选 Jev、候选期限、可配置原生到码提示、剪贴板复制、明确连接状态及账户管理。菜单栏面板可查看候选；提示明确属于本 App，不冒充系统 AutoFill。
+
+Outlook / Hotmail / Live、Microsoft OAuth、公开分发、iCloud、Yahoo、Fastmail 属于后续阶段，需要各自认证、收信和恢复测试。提供商描述符为 OAuth 型邮箱预留扩展点；共用 IMAP 不能证明这些邮箱已经支持。
+
+不实现 SMTP 接收服务器、自动转发、自建云收信、自动提交、到码立即输入、magic link 自动打开、TOTP、短信读取、剪贴板监控、长期历史或跨设备同步。邮件有明确登录语义时可显示 HTTPS 登录链接，用户点击后交给默认浏览器打开；不解析跟踪跳转，也不自动复制。
+
+## “比官方可靠”的判定
+
+Apple 自带功能经常失效是待复现的反馈，不预判为收信、识别或系统 UI 的问题。分别检查 Gmail 邮件是否到达、是否被本地正确识别、提示是否出现、复制是否与选中的码一致、是否能手动粘贴。连接状态不能代替候选结果。可选 AutoFill 还需单独检查共享候选、身份索引、系统建议与实际输入，不能用复制路径替代。
+
+用相同受控邮件和登录页面，对照 Apple Mail 的系统建议与本工具。按浏览器和恢复场景记录候选成功、正确码、错填及延迟的次数与总次数。未完成对照前不宣称整体优于官方。
+
+系统控制建议展示，不能保证任意文本框自动弹出。Mac 睡眠或断网时不能实时收信，恢复后补查近期窗口。网站可能提前作废旧码；本地期限不是服务端有效性证明。
+
+## 提供商接入与凭据
+
+Gmail 使用 `imap.gmail.com:993`、TLS 和 Google 应用专用密码。用户启用两步验证后自行创建密码；组织策略或高级保护不支持时明确阻塞，不要求关闭保护。QQ 邮箱使用 `imap.qq.com:993`、TLS、完整邮箱地址和账户设置中生成的授权码，不使用 QQ 密码。应用不收集邮箱登录密码，不内嵌密钥。
+
+应用专用密码和 QQ 授权码权限较宽，“本工具只执行读取”不意味着凭据只能读验证码。宿主按提供商和邮箱隔离登录钥匙串项目，不共享给扩展，不进入配置、UserDefaults、日志或跨设备同步。钥匙串失败不转存明文。旧版 Gmail 凭据先迁入新账户项目并读回核验，再删除旧项目；删除失败不会阻塞启动，后续启动重试。Gmail 账户 ID 保持为原邮箱，以兼容按邮箱保存的 AutoFill 规则和暂停状态。
+
+暂停持久保存；移除删除本 App 的凭据、候选和对应网站关联，不改远端邮件。账户替换先取消并等待旧会话结束，旧回调不能恢复已移除数据。Himalaya 仅是既有连接方式的开发参照，不是生产依赖或轮询子进程。
+
+公开登录阶段比较 Google 原生 OAuth + PKCE 与 Gmail API：IMAP OAuth 的 `mail.google.com` scope 宽且受限，Gmail API readonly + watch/PubSub 有另外的审核和基础设施成本。不能描述为“仅能读取验证码”，不提前实现多套后端。
+
+## 收信与数据流
+
+提供商描述符定义展示名、IMAP TLS 主机和端口、凭据说明、IDLE 能力及 INBOX。通用 IMAP feed 封装认证、连接、MIME 和恢复，输出规范化邮件与状态，不承担 OTP 业务判断或 UI；每个账户会话独立管理连接并调用 `CodeDetector` 与纯核心 `SignInLinkDetector`。本地未识别验证码的邮件可进入独立 Jev 请求，不阻塞收信，`CandidateVault` actor 保存分类型候选权威状态。
+
+- 每个账户以只读连接先进入 IDLE，另一条抓取，避免同步和回调期间的监听空窗。变化通过事件响应；IDLE 协议续期及失败退避可取消，活动不能无限推迟续期。QQ 若服务器不通告 IDLE，则仅 QQ 使用可取消的 10 秒有界 NOOP 轮询与失败退避；Gmail 不支持 IDLE 时明确失败。
+- 所有连接验证 TLS，使用 EXAMINE 与 BODY.PEEK，不设置 Seen、不移动、不删除、不发送。
+- 邮件身份使用账户、INBOX、UIDVALIDITY、UID。启动、重连和 UIDVALIDITY 改变后补查最新 30 封元数据，近期窗口不完整时提示。
+- 正文按最新邮件优先处理；补查时收到新推送，在当前邮件完成后重新检查最新窗口，不先清空整批旧正文。每次仍检查有界元数据窗口。
+- 以服务端 INTERNALDATE 判断最近 10 分钟，不信任邮件 Date。超前时间暂缓并提示，不永久标记已处理；普通网络抓取失败也不能提前确认游标。
+- 正文有界读取，普通文本和 HTML 共用读取上限，保留正文边界后交由核心逐段识别、统一去重；HTML 只解析有界锚点的 href 和可见文本，不执行脚本、图片或跟踪请求，不跟随或解析链接跳转。编码正文或正常化后的总字节数超限时整封跳过，不截断出半个验证码；不读附件或嵌套 message/rfc822，移除 HTML 引用。普通邮件没有验证码或登录链接是合法结果；超限和解码失败要有不包含正文的类别提示。
+- 认证失败需要用户处理，网络失败有上限退避；不能把断开的连接显示成正在监听。取消关闭连接并等待在途回调结束。
+
+SwiftMail 1.12.0 提供 IMAP/MIME，固定版本，确认许可、证书验证、只读、IDLE 取消和体积。SwiftLog 关闭可能含邮件的协议日志；其余使用系统框架，不新增 UI 或 AI 依赖。
+
+## 识别与隐私
+
+带明确登录语义的 4–10 位 ASCII 数字/字母是常见目标，保留前导零和大小写。订单、电话、日期、普通数字、签名与引用旧码有反例保护，不能为了召回率把所有六位数字当作验证码。本地明确规则由 `CodeDetector` 负责，候选与引用清理由 Core 负责；传输层不判断验证码。
+
+正文和 bearer 登录链接仅在有界解析期间留在内存。日志不记录邮箱地址、主题、正文、验证码、登录链接、凭据、剪贴板或目标控件内容。HTML href 与可见正文分开传递，不扩展 Jev 请求内容；Jev 仍只选择验证码。Jev 默认关闭，由用户在设置中主动启用。本地无结果且存在候选时，发送发件人、主题和最多 1500 字正文给 TypeSafe，包含待选择的真实码；界面明确披露此边界。模型只能选择最多 8 个原文候选，不能生成码，置信度不足不采纳；错误明确提示，不转交慢聊天模型。请求可取消，关闭、暂停、账户替换和退出后拒绝迟到结果，不阻塞后续本地明确码。密钥只存登录钥匙串，可显式从本机环境文件导入，不执行文件或把密钥打包。
+
+## 到码提示与填入或复制
+
+`CandidateArrivalTracker` 独立于列表跟踪本次启动后新到、未消费的候选；清空列表后的重连不能重复提示或复制。新的候选加入同一张堆叠卡片并置顶，最多展示 5 行，其余数量汇总；本次进程启动之前的邮件只列为手动候选。链接先到、Jev 后补的验证码会合并进同一邮件候选并沿用原接收时间与期限；如果链接卡片已经展示，晚到的码只更新列表，不再弹第二张卡。消费记录按邮件身份保留到原到期时间，只阻止已消费候选 ID 复活，允许同邮件晚到的其他候选合并。勿扰时间段在 Core 按注入的时间计算，期间候选进入列表并标记为已见，结束后不重放提示或自动复制。
+
+默认仅提示。卡片默认跟随鼠标，放在指针右下方并避开指针，受当前屏幕可见区域约束；靠近边缘时尝试其他方向。用户也可选“跟随输入光标”，按插入点、小型输入框、鼠标位置依次回退。拖动标题栏可移开卡片；可选按屏幕记住拖动后的位置，显示器缺失或位置超出可见区域时回退到所选位置模式，并可重置所有记录。验证码行使用信封图标，登录链接行使用链接图标；后者显示“打开登录链接 + 注册域名”，仅在用户点击后调用默认浏览器打开原始 HTTPS URL。两种候选都显示发件人名称和主题。发件人名称从原始 From 头派生，候选仍保留原始 `source` 供 AutoFill 规则使用。自动复制只处理验证码；链接永不自动复制。一封邮件包含多个候选时不自动选择。
+
+“识别与提示”设置持久保存验证码卡片点击行为，默认只复制。只有选了填入、辅助功能已授权且卡片展示时检测到可写文本框，第一行才显示“填入”；否则显示“复制”。点击“只复制”只写剪贴板。点击“填入”前重新检查候选仍存在且未过期、目标是其他 App 的普通可写文本框且焦点、文本与选区均未改变，成功后回读核对。安全插入失败、目标不支持或未授权时，沿用 `CandidateClipboard` 复制并说明原因；不得自动请求权限、按 Return、提交表单或重试不确定的插入。未授权时设置页显示状态，只有用户点击设置按钮才打开系统辅助功能隐私面板。登录链接始终按点击打开，不受验证码卡片行为设置影响。每一封多候选邮件均由用户明确选择。复制在写入前检查期限，写失败明确反馈，保留前导零和大小写。不读取或监控剪贴板变化、不恢复或定时删除用户内容；明确提醒剪贴板历史与跨设备同步风险。
+
+提示是 `.nonactivatingPanel`，不调用激活或获取键盘焦点，默认展示 30 秒，设置支持 5–300 秒并持久保存。卡片标题栏可拖动，行内按钮可执行填入、复制或打开链接；成功使用候选后只消费该候选，并从仍显示的卡片中移除对应行。自动复制不消费候选，失败操作保留候选。到期、移除、暂停和屏幕睡眠撤回提示。卡片配置为跨 Space 固定显示，在显示桌面、切换 Space 和调度中心中保持可见；该系统级行为仍需用户实机确认。锁屏/多屏/全屏仍需独立验收。系统截图和录屏默认看不到验证码提示；用户明确允许后，到码卡片和可选 AutoFill 热键填入面板可进入捕获画面。
+
+## 可选系统 AutoFill 与共享候选
+
+此构建使用 macOS 15 起的 Credential Provider OTP API，不依赖 macOS 27 的只读系统验证码接口。免费 Apple Developer 账号不支持 AutoFill capability；自用也不能靠普通签名替代 provisioning profile。本机复制版不包含受控 entitlement 或扩展，不调用共享候选接口。
+
+宿主内嵌 `ASCredentialProviderViewController` 扩展，声明 `ProvidesOneTimeCodes`。宿主与扩展均需要真实 AutoFill entitlement、适用 profile；用户在系统设置明确启用。`ASCredentialIdentityStore.state().isEnabled` 和更新结果决定显示状态，点击启用入口本身不代表成功。
+
+宿主是共享候选唯一写入方；扩展只读。用 Data Protection Keychain 共享验证码、来源、接收账户、期限和显式网站规则，不需要 App Group；登录链接永不进入 AutoFill 投影。设备解锁时可访问、仅本机、不同步 iCloud。扩展的 Keychain entitlement 只包含共享组，不能访问宿主 Gmail 凭据组。
+
+共享候选先写入，系统身份索引后更新；索引更新串行且合并待发布的最新状态。索引只保存网站、标签和不含明文的记录 ID，不能把 OTP 塞入 label 或 recordIdentifier。旧更新即使短暂可见，也必须重新读取当前投影，不能恢复已撤回的码。
+
+邮件 From、品牌与正文链接不是可信目标。没有用户明确关联的网站时，只在系统主动打开的验证码列表中提供手动选择；不拿 Gmail 域名或猜测域名伪造建议。用户可按接收账户、发件人与域名创建或移除建议规则，关联不证明发件人经过认证。系统匹配和展示仍由 macOS 决定。
+
+扩展处理列表、无界面取码与需要界面的请求，返回明确选中的 `ASOneTimeCodeCredential`。每次点击重新读取并核对 ID、关联和期限；过期、移除、锁定或读取失败时明确拒绝，不换成最新码、不自动提交。新到码不改变现有手动选择。
+
+候选期限最多为接收后 10 分钟。主 App 活着时按最近期限一次性定时撤回，不轮询；暂停、移除和正常退出清空投影。异常退出后扩展仍独立拒绝过期码，下次宿主更新物理清理。清理失败不能假报已删除；规则操作失败可重新检查同步，正常退出前清空失败须提示并默认取消退出，只有用户明确选择仍然退出才保留到期限制下的旧快照。真实跨进程读写、系统缓存和 App 退出后的行为需要签名后的实测。
+
+## 原生交互与备用路径
+
+菜单栏面板提供连接状态、最近同步时间、待用队列、自动复制与勿扰控制、账户管理及识别/提示设置。队列按新到旧显示单行候选，支持 ↑/↓、Return 与 ⌘1…⌘9；成功操作只消费所选候选并撤回其 AutoFill 投影。勿扰提供 30 分钟、1 小时、次日本地 08:00 和手动恢复选项，收信及列表更新继续运行。设置里的分段耗时不含邮件投递和推送前等待。只有可选 AutoFill 构建提供系统启用状态和网站关联。同步未结束时不声称没有验证码，暂停或断线时不声称会实时收新信。离线试用明确标成合成邮件，不发布给系统。
+
+到码卡片的 `NSPanel` 直接承载透明 `NSHostingView`；SwiftUI 卡片容器应用唯一的 `.glassEffect(.regular, in: .rect(cornerRadius: 16))`，并留出 24 pt 透明边距以免裁切玻璃边缘。堆叠行不单独加玻璃或背景，文字使用系统主、次级颜色；系统管理外观。panel 保持 non-activating、跨空间固定且无额外阴影；标题栏拖动时移动当前窗口。卡片和可选热键面板默认 `sharingType = .none`，用户可显式允许系统截图/录屏后切换到 `.readOnly`。键盘、VoiceOver、暗色、降低透明度及最低系统版本仍需用户实测，不能由编译推断。
+
+仅可选 AutoFill 构建的备用快捷键为 ⌃⌥Space，冲突不抢占。打开面板前捕获目标，选择后才能确认；Return 填入、⌘C 复制、Esc 取消。写前核对原 App、控件、值与选区，仅插入一次并回读，不覆盖整框、不模拟回车。焦点、内容、权限改变则拒绝；不确定结果不自动重试。辅助功能单独授权，不与系统 AutoFill 捆绑。
+
+## 实施与验收顺序
+
+1. **本机签名**：默认构建不嵌入扩展或受控 entitlement，以现有证书验证普通 App 能运行。独立目录保留旧运行版本；打开新版前退出旧版，不同时监听。
+2. **提示与填入/复制**：合成邮件走真实识别、候选和原生提示。分别验证默认鼠标位置、输入光标选项、屏幕边缘避让、拖动与按屏幕记忆/重置，及截图权限默认关闭和显式开启；验证默认“只复制”、跨启动保留的卡片行为设置、填入模式下授权/输入框/插入失败时的复制原因与系统设置入口；检查失败反馈不谎报成功、不重试、不提交。核对自定关闭时间、成功使用后消费候选与自动复制确认。验证勿扰的持久化、时区/唤醒恢复、队列键盘操作、失败保留候选、同邮件 late Jev 合并及不重弹卡片、旧码/重复/过期不覆盖，以及提示不改变当前输入焦点。
+3. **Gmail 与 QQ 实机**：真实账户登录、受控新信、MIME、去重与期限，核对提示、复制/粘贴结果和邮件未读状态。QQ 的 IDLE 能力已作无登录 CAPABILITY 检查，真实账户行为仍待验证。连接成功不等于真实收码通过。
+4. **恢复和对照**：暂停/移除、断网、睡眠、锁屏、多屏、最低系统版本、可访问性与官方对照。待测目标为本机事件到候选 p95 ≤ 1 秒、恢复后补齐近期窗口 ≤ 10 秒，区分服务器投递延迟；未经测试不宣称优于官方。
+5. **可选 AutoFill**：仅有适用账号和 profile 时配置既有两个 App ID，验收扩展注册、共享候选、Safari/Chrome 实际填码、退出清理及失败恢复。当前未验收，不阻塞本机复制版，但不能标成已经支持系统填码。
+6. **后续提供商与发行**：Outlook 独立验证认证、收信和恢复。Jev 使用合成邮件实测 API 与延迟，再由用户主动启用真实邮件辅助识别；不能把模型调用成功当成整体速度提升。公开安装包、Developer ID、公证和 Gatekeeper 均不在自用交付范围。
+
+每轮保存命令原始退出码、实际版本、行为证据与阻塞。外部注册、证书、云资源、送审或发布只在对应授权后执行；本地可逆实现和验证不因此停止。前台交互需要明确许可，不绕过工具或系统权限。
+
+## 一手依据
+
+文档说明接口，不证明本 App 已验收。Apple OTP、签名和共享边界核验于 2026-09-22；其他接入路线核验于 2026-09-21。
+
+- [Apple：向 AutoFill 提供 OTP](https://developer.apple.com/documentation/authenticationservices/providing-one-time-passcodes-to-autofill)
+- [Apple：macOS 能力与会员范围](https://developer.apple.com/help/account/reference/supported-capabilities-macos)
+- [Apple：AutoFill entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.authentication-services.autofill-credential-provider)
+- [Apple：Keychain Sharing](https://developer.apple.com/documentation/bundleresources/entitlements/keychain-access-groups)
+- [Apple：身份索引](https://developer.apple.com/documentation/authenticationservices/ascredentialidentitystore)
+- [Apple：macOS 自带验证码菜单](https://developer.apple.com/documentation/bundleresources/information-property-list/nsautofillrequirestextcontenttypeforonetimecodeonmac)
+- [Apple：Liquid Glass](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views)
+- [Google：Gmail IMAP/TLS](https://developers.google.com/workspace/gmail/imap/imap-smtp)
+- [Google：应用专用密码](https://support.google.com/accounts/answer/185833)
+- [Google：OAuth scope](https://developers.google.com/identity/protocols/oauth2/scopes#gmail)
+- [Microsoft：IMAP OAuth](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth)
+- [SwiftMail](https://github.com/Cocoanetics/SwiftMail)

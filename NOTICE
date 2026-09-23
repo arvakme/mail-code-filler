@@ -1,0 +1,22 @@
+Sender icon assets
+==================
+
+The sender avatar catalog contains original-color raster app artwork returned
+by Apple's public iTunes Search/Lookup API and first-party touch icons/favicons
+from the brands' official websites. Per-brand source metadata, including App
+Store track ID, bundle ID, seller, country, fetched artwork URL, source pixel
+dimensions, website URLs, license field, and guidelines URL, is stored in
+Sources/Core/Resources/sender-brands.json. Ninety-three entries use App Store
+artwork, seven use first-party website icons, and twelve use generated initial
+monograms because no qualifying official raster icon was verified.
+
+The `license: "none"` value means the source did not provide a per-image SPDX
+license identifier. It does not grant reproduction rights or put an image in
+the public domain. The images, brand names, and marks remain the property of
+their respective owners. They are bundled only to identify the source of an
+email sender and do not indicate authentication, sponsorship, affiliation, or
+endorsement.
+
+Every brand record defaults to `publicReleaseReviewed: false`. Review the
+trademark use and source terms for each individual mark before public release;
+the catalog validator lists all records that still require that review.

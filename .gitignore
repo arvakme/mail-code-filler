@@ -1,0 +1,8 @@
+.build/
+build/
+.swiftpm/
+*.xcodeproj/
+Config/Signing.local.xcconfig
+.DS_Store
+__pycache__/
+*.pyc

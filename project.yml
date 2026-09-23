@@ -1,0 +1,81 @@
+name: MailCodeFiller
+options:
+  deploymentTarget:
+    macOS: '26.0'
+configs:
+  Debug: debug
+  Release: release
+packages:
+  MailCodeCore:
+    path: .
+targetTemplates:
+  Host:
+    type: application
+    platform: macOS
+    sources: [Sources/App]
+    dependencies:
+      - package: MailCodeCore
+        product: MailCodeCore
+      - package: MailCodeCore
+        product: MailCodeGmail
+      - package: MailCodeCore
+        product: MailCodeAutoFill
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.zhijie.MailCodeFiller
+        PRODUCT_NAME: Mail Code Filler
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Mail Code Filler
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        COMBINE_HIDPI_IMAGES: YES
+targets:
+  MailCodeFillerLocal:
+    templates: [Host]
+    configFiles:
+      Debug: Config/Local.xcconfig
+      Release: Config/Local.xcconfig
+  MailCodeFiller:
+    templates: [Host]
+    dependencies:
+      - target: MailCodeAutoFillExtension
+        embed: true
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: Config/Host.entitlements
+        INFOPLIST_KEY_MailCodeAutoFillAccessGroup: $(MAIL_CODE_AUTOFILL_GROUP)
+  MailCodeAutoFillExtension:
+    type: app-extension
+    platform: macOS
+    sources: [Sources/Extension]
+    dependencies:
+      - package: MailCodeCore
+        product: MailCodeAutoFill
+    configFiles:
+      Debug: Config/AutoFill.xcconfig
+      Release: Config/AutoFill.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.zhijie.MailCodeFiller.AutoFill
+        PRODUCT_NAME: MailCodeAutoFillExtension
+        INFOPLIST_FILE: Config/AutoFill-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Config/AutoFill.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+schemes:
+  MailCodeFillerLocal:
+    build:
+      targets:
+        MailCodeFillerLocal: all
+    run:
+      config: Debug
+  MailCodeFiller:
+    build:
+      targets:
+        MailCodeFiller: all
+        MailCodeAutoFillExtension: all
+    run:
+      config: Debug

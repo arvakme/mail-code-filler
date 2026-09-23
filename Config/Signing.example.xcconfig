@@ -1,0 +1,6 @@
+// Copy to Signing.local.xcconfig and choose an installed signing identity.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+CODE_SIGN_IDENTITY = Apple Development
+// Only --autofill needs these installed profiles; the default local copy build ignores them.
+MAIL_CODE_HOST_PROFILE = YOUR_HOST_PROFILE_NAME
+MAIL_CODE_EXTENSION_PROFILE = YOUR_EXTENSION_PROFILE_NAME
