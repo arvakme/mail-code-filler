@@ -1,0 +1,14 @@
+{
+  "subject": "华为登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>华为 验证码：641209</p></body></html>",
+  "expected": {
+    "codes": [
+      "641209"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

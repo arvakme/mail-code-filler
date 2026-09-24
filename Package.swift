@@ -32,6 +32,12 @@ let package = Package(
         ),
         .testTarget(name: "MailCodeCoreTests", dependencies: ["MailCodeCore"]),
         .testTarget(
+            name: "MailCorpusTests",
+            dependencies: ["MailCodeGmail", "MailCodeCore"],
+            path: "Tests/Fixtures",
+            resources: [.process("mail-corpus")]
+        ),
+        .testTarget(
             name: "MailCodeGmailTests",
             dependencies: [
                 "MailCodeGmail",

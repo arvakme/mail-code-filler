@@ -6,6 +6,9 @@ public enum IMAPAccountError: LocalizedError, Equatable {
     case invalidEmail
     case invalidAppPassword
     case invalidAuthorizationCode
+    case invalidICloudPassword
+    case invalidNetEaseAuthorizationCode
+    case unsupportedDomain
     case keychain(OSStatus)
     case damagedCredential
     case credentialMismatch
@@ -19,6 +22,12 @@ public enum IMAPAccountError: LocalizedError, Equatable {
             return "请输入 Google 生成的 16 位应用专用密码，不是 Google 登录密码。"
         case .invalidAuthorizationCode:
             return "请输入 QQ 邮箱设置中生成的授权码，不是 QQ 密码。"
+        case .invalidICloudPassword:
+            return "请输入 Apple 账户生成的 App 专用密码，不是 Apple 账户密码。"
+        case .invalidNetEaseAuthorizationCode:
+            return "请输入网易邮箱设置中生成的客户端授权码，不是网页邮箱密码。"
+        case .unsupportedDomain:
+            return "所选邮箱类型不支持这个邮箱域名。"
         case .keychain:
             return "无法访问登录钥匙串。请解锁钥匙串后重试；凭据没有转存到文件。"
         case .damagedCredential:
@@ -45,6 +54,7 @@ extension IMAPAccountCredentials {
                     || CharacterSet.controlCharacters.contains($0)
             })
         else { throw IMAPAccountError.invalidEmail }
+        _ = try provider.imapHost(for: address)
 
         let compactSecret = secret.filter { !$0.isWhitespace }
         switch provider {
@@ -60,6 +70,18 @@ extension IMAPAccountCredentials {
                     CharacterSet.controlCharacters.contains($0)
                 })
             else { throw IMAPAccountError.invalidAuthorizationCode }
+        case .icloudMail:
+            guard !compactSecret.isEmpty,
+                !compactSecret.unicodeScalars.contains(where: {
+                    CharacterSet.controlCharacters.contains($0)
+                })
+            else { throw IMAPAccountError.invalidICloudPassword }
+        case .neteaseMail:
+            guard compactSecret.utf8.count == 16,
+                compactSecret.utf8.allSatisfy({
+                    (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
+                })
+            else { throw IMAPAccountError.invalidNetEaseAuthorizationCode }
         }
         return IMAPAccountCredentials(provider: provider, email: address, secret: compactSecret)
     }

@@ -20,6 +20,7 @@ public final class IMAPAccountSession {
     public private(set) var recognitionNotice: String?
     public private(set) var lastProcessingSummary: String?
     public var onCandidatesChanged: (@MainActor () async -> Void)?
+    public var recentMissedMail: RecentMissedMailRing?
 
     @ObservationIgnored private let vault: CandidateVault
     @ObservationIgnored private let feed: any IMAPFeed
@@ -103,6 +104,7 @@ public final class IMAPAccountSession {
         try credentials.remove(accountID: account.id)
         setPersistedPaused(true)
         await stopListening(finalPhase: .notConfigured).value
+        await recentMissedMail?.remove(accountID: account.id)
     }
 
     public func reconnectAfterWake() {
@@ -132,6 +134,7 @@ public final class IMAPAccountSession {
     public func shutdown() {
         task?.cancel()
         cancelSemanticJobs()
+        if let recentMissedMail { Task { await recentMissedMail.clear() } }
     }
 
     public func setSemanticResolver(_ resolver: (any SemanticCodeResolver)?) {
@@ -249,8 +252,11 @@ public final class IMAPAccountSession {
             let loginLink = SignInLinkDetector().detect(
                 subject: mail.subject, bodies: mail.bodies, links: mail.links)
             if !codes.isEmpty || loginLink != nil {
+                await recentMissedMail?.remove(mail.id)
                 recordTiming(mail, since: started, source: "本地")
                 await publish(mail, codes: codes, loginLink: loginLink, generation: token)
+            } else {
+                await recentMissedMail?.record(mail)
             }
             if codes.isEmpty {
                 scheduleSemantic(mail, generation: token)
@@ -280,6 +286,7 @@ public final class IMAPAccountSession {
                 else { return }
                 self.recordTiming(mail, since: started, source: "Jev")
                 if let code {
+                    await self.recentMissedMail?.remove(mail.id)
                     await self.publish(mail, codes: [code], loginLink: nil, generation: token)
                 }
             } catch {

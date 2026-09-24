@@ -1,0 +1,12 @@
+{
+  "subject": "快递已发货",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "运单号：638482，预计送达日期 2026-09-25。",
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic negative fixture.",
+  "source": "synthetic"
+}

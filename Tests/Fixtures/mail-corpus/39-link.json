@@ -1,0 +1,17 @@
+{
+  "subject": "Verify your email",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>Verify your email</p><a href=\"https://example.test/verify/microsoft\">Verify your email</a></body></html>",
+  "expected": {
+    "codes": [],
+    "links": [
+      {
+        "url": "https://example.test/verify/microsoft",
+        "purpose": "verification"
+      }
+    ]
+  },
+  "notes": "Synthetic link regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

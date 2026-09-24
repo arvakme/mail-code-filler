@@ -1,0 +1,14 @@
+{
+  "subject": "北森登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "请使用以下验证码登录 北森：\n641200",
+  "expected": {
+    "codes": [
+      "641200"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

@@ -1,0 +1,14 @@
+{
+  "subject": "中国移动登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "中国移动 验证码：641215",
+  "expected": {
+    "codes": [
+      "641215"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

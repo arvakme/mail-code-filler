@@ -283,7 +283,7 @@ struct GmailMessageTextTests {
     @Test func terminalErrorsStaySanitized() {
         let leaked = ["AUTHENTICATIONFAILED", "NO [", "Subject:", "LOGIN", "\r\n", "abcdefgh"]
         for error in [
-            GmailIMAPError.authenticationRejected, .idleUnavailable, .mailboxNotReadOnly,
+            GmailIMAPError.authenticationRejected, .idleUnavailable, .mailboxNotReadOnly, .rateLimited,
         ] {
             let text = [
                 (error as LocalizedError).errorDescription,

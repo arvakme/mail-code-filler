@@ -1,0 +1,14 @@
+{
+  "subject": "Claude confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Your confirmation code for Claude:\n641232",
+  "expected": {
+    "codes": [
+      "641232"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

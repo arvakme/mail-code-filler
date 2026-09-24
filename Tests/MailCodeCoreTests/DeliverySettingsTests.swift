@@ -20,6 +20,13 @@ struct DeliverySettingsTests {
         #expect(settings.actionForCodeCard(writableTargetAvailable: false) == .copy)
         #expect(settings.actionForCodeCard(writableTargetAvailable: true) == .copy)
         #expect(!settings.jevEnabled)
+        #expect(settings.fillShortcut == .defaultFill)
+        #expect(settings.chooserShortcut == .defaultChooser)
+        #expect(!settings.allowsBrowserAutomation)
+        #expect(!settings.otpFieldAutoTriggerEnabled)
+        #expect(!settings.otpFieldRequireAuthPage)
+        #expect(!settings.clipboardAutoClearEnabled)
+        #expect(settings.clipboardAutoClearSeconds == 30)
         #expect(settings.displayDuration(automaticallyCopied: false) == 30)
         #expect(settings.displayDuration(automaticallyCopied: true) == 30)
         try settings.setDisplayDuration("45")
@@ -30,6 +37,15 @@ struct DeliverySettingsTests {
         settings.cardPlacementMode = .followInputCaret
         settings.rememberDraggedPosition = true
         settings.allowsScreenshots = true
+        let customFill = ShortcutBinding(keyCode: 8, modifiers: ShortcutBinding.control)
+        let customChooser = ShortcutBinding(keyCode: 49, modifiers: ShortcutBinding.command)
+        settings.fillShortcut = customFill
+        settings.chooserShortcut = customChooser
+        settings.allowsBrowserAutomation = true
+        settings.otpFieldAutoTriggerEnabled = true
+        settings.otpFieldRequireAuthPage = true
+        settings.clipboardAutoClearEnabled = true
+        settings.clipboardAutoClearSeconds = 120
         settings.rememberCardPosition(
             RememberedCardPosition(screenIdentifier: "display-1", xOffset: 120, yOffset: 80))
         #expect(settings.actionForCodeCard(writableTargetAvailable: false) == .copy)
@@ -42,6 +58,13 @@ struct DeliverySettingsTests {
         #expect(restored.cardPlacementMode == .followInputCaret)
         #expect(restored.rememberDraggedPosition)
         #expect(restored.allowsScreenshots)
+        #expect(restored.fillShortcut == customFill)
+        #expect(restored.chooserShortcut == customChooser)
+        #expect(restored.allowsBrowserAutomation)
+        #expect(restored.otpFieldAutoTriggerEnabled)
+        #expect(restored.otpFieldRequireAuthPage)
+        #expect(restored.clipboardAutoClearEnabled)
+        #expect(restored.clipboardAutoClearSeconds == 120)
         #expect(
             restored.rememberedCardPositions == [
                 RememberedCardPosition(screenIdentifier: "display-1", xOffset: 120, yOffset: 80)
@@ -52,6 +75,21 @@ struct DeliverySettingsTests {
         #expect(settings.notificationSeconds == 5)
         settings.notificationSeconds = 900
         #expect(settings.notificationSeconds == 300)
+    }
+
+    @Test func invalidClipboardDurationAndConflictingStoredBindingsUseDefaults() throws {
+        let name = "MailCodeFiller.new-settings.tests.\(UUID())"
+        let preferences = try #require(UserDefaults(suiteName: name))
+        defer { preferences.removePersistentDomain(forName: name) }
+        ShortcutBinding.defaultFill.save(to: preferences, key: ShortcutSettingsKeys.fill)
+        ShortcutBinding.defaultFill.save(to: preferences, key: ShortcutSettingsKeys.chooser)
+        preferences.set(5, forKey: "clipboard-auto-clear-seconds")
+        let settings = DeliverySettings(preferences: preferences)
+        #expect(settings.fillShortcut == .defaultFill)
+        #expect(settings.chooserShortcut == .defaultChooser)
+        #expect(settings.clipboardAutoClearSeconds == 30)
+        settings.clipboardAutoClearSeconds = 45
+        #expect(settings.clipboardAutoClearSeconds == 30)
     }
 
     @Test func rememberedPositionsAreUniqueByScreenAndCanBeReset() throws {

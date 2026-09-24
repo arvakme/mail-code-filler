@@ -26,7 +26,7 @@ struct IMAPAccountFormView: View {
                         Text(item.descriptor.displayName).tag(item)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
             }
             Text(existingAccount == nil ? "添加后与其他账户同时监听。" : existingAccount?.email ?? "")
                 .foregroundStyle(.secondary)
@@ -99,7 +99,7 @@ struct IMAPAccountsView: View {
                     .controlSize(.small)
             }
             if model.accounts.isEmpty {
-                Text(model.accountSetupProblem ?? "尚未连接邮箱。添加 Gmail 或 QQ 邮箱后即可同时监听。")
+                Text(model.accountSetupProblem ?? "尚未连接邮箱。添加 Gmail、QQ、iCloud 或网易邮箱后即可同时监听。")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(model.accounts, id: \.account.id) { session in
@@ -196,7 +196,7 @@ private struct IMAPAccountRow: View {
         case .active(.connecting): "连接中"
         case .active(.synchronizing): "同步中"
         case .active(.listening): "监听中"
-        case .active(.polling): "轮询（约 10 秒）"
+        case .active(.polling): "轮询中"
         case .active(.reconnecting): "连接可能中断，正在重连"
         }
     }

@@ -5,6 +5,7 @@ import SwiftUI
 struct DeliverySettingsView: View {
     let model: AppModel
     let onBack: () -> Void
+    let onOpenSamples: () -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var seconds = ""
     @State private var key = ""
@@ -90,6 +91,63 @@ struct DeliverySettingsView: View {
                     }
                 }
                 Text("默认只复制。登录链接始终按点击打开，不受此设置影响。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                Label("浏览器匹配", systemImage: "globe").font(.headline)
+                Toggle("允许在 AX 无法读取时读取当前浏览器标签网址", isOn: $settings.allowsBrowserAutomation)
+                Text("仅 Safari 和 Chrome 的当前标签可能请求 macOS 自动化权限；其他浏览器只尝试辅助功能。仅保留网站域名用于候选排序，不发送网址。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                Label("等码", systemImage: "hourglass").font(.headline)
+                Toggle(
+                    "检测验证码输入框并加快查收",
+                    isOn: Binding(
+                        get: { settings.otpFieldAutoTriggerEnabled },
+                        set: {
+                            settings.otpFieldAutoTriggerEnabled = $0
+                            model.onCodeWaitTriggerSettingsChanged?()
+                        }))
+                Toggle(
+                    "仅在登录或验证页面触发",
+                    isOn: Binding(
+                        get: { settings.otpFieldRequireAuthPage },
+                        set: {
+                            settings.otpFieldRequireAuthPage = $0
+                            model.onCodeWaitTriggerSettingsChanged?()
+                        })
+                )
+                .disabled(!settings.otpFieldAutoTriggerEnabled)
+                Text("自动检测需要已有辅助功能授权；不开启时仍可在主面板手动等码。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                Label("剪贴板", systemImage: "doc.on.clipboard").font(.headline)
+                Toggle(
+                    "自动清除剪贴板验证码",
+                    isOn: Binding(
+                        get: { settings.clipboardAutoClearEnabled },
+                        set: { model.setClipboardAutoClearEnabled($0) }))
+                Picker("等待时间", selection: $settings.clipboardAutoClearSeconds) {
+                    ForEach(DeliverySettings.clipboardAutoClearChoices, id: \.self) { seconds in
+                        Text("\(seconds) 秒").tag(seconds)
+                    }
+                }
+                .disabled(!settings.clipboardAutoClearEnabled)
+                Text("仅在剪贴板未变化时尝试清除；剪贴板历史工具仍可能留存验证码。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                Label("登录与反馈", systemImage: "person.crop.circle.badge.checkmark").font(.headline)
+                LaunchAtLoginSettingsView(manager: model.loginManager)
+                Button("最近邮件里有验证码或登录链接没识别出来？", action: onOpenSamples)
+                    .buttonStyle(.link)
+                Text("样本仅在选择邮件后只读重取，脱敏预览经你确认才保存到本机。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Divider()

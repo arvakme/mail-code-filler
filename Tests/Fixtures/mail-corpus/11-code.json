@@ -1,0 +1,17 @@
+{
+  "subject": "小米登录验证码",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "小米 验证码：641210",
+    "html": "<p>小米 验证码：641210</p>"
+  },
+  "expected": {
+    "codes": [
+      "641210"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

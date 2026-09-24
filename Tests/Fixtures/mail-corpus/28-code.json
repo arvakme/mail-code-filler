@@ -1,0 +1,14 @@
+{
+  "subject": "Shopify confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Your confirmation code is 641227",
+  "expected": {
+    "codes": [
+      "641227"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

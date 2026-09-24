@@ -1,0 +1,14 @@
+{
+  "subject": "Stripe confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Your confirmation code for Stripe:\n641228",
+  "expected": {
+    "codes": [
+      "641228"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

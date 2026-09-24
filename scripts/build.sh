@@ -28,7 +28,18 @@ if $compile_only; then
   folder="Unsigned$folder"
   settings="${settings%.json}-unsigned.json"
 fi
+# xcodegen rewrites the shared MailCodeFiller.xcodeproj; serialize concurrent builds so one
+# regenerate cannot pull the project out from under another xcodebuild.
+lock_dir=build/.build.lock
+mkdir -p build
+until mkdir "$lock_dir" 2>/dev/null; do
+  echo "Waiting for another scripts/build.sh to finish..." >&2
+  sleep 5
+done
+trap 'rmdir "$lock_dir"' EXIT
 derived_data="${DERIVED_DATA_PATH:-build/$folder}"
+mkdir -p "$derived_data"
+settings="$derived_data/$(basename "$settings")"
 xcodegen generate
 mkdir -p build MailCodeFiller.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
 # SwiftPM tests and Xcode must use the same transitive dependency versions.

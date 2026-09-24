@@ -1,0 +1,14 @@
+{
+  "subject": "京东登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "京东 验证码：641203",
+  "expected": {
+    "codes": [
+      "641203"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

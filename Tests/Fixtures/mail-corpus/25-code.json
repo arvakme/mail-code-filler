@@ -1,0 +1,14 @@
+{
+  "subject": "Notion confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Your confirmation code for Notion:\n641224",
+  "expected": {
+    "codes": [
+      "641224"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

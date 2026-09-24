@@ -1,0 +1,14 @@
+{
+  "subject": "Zoom confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>Your verification code: 641225</p></body></html>",
+  "expected": {
+    "codes": [
+      "641225"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

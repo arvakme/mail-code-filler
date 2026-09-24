@@ -1,0 +1,17 @@
+{
+  "subject": "Activate your account",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>Activate your account</p><a href=\"https://example.test/activate/康明斯\">Activate your account</a></body></html>",
+  "expected": {
+    "codes": [],
+    "links": [
+      {
+        "url": "https://example.test/activate/%E5%BA%B7%E6%98%8E%E6%96%AF",
+        "purpose": "activation"
+      }
+    ]
+  },
+  "notes": "Synthetic link regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

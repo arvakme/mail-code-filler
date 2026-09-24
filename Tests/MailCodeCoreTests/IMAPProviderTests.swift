@@ -25,6 +25,35 @@ struct IMAPProviderTests {
         #expect(IMAPAccount(provider: .gmail, email: " Person@Gmail.com ").id == "person@gmail.com")
     }
 
+    @Test func iCloudAndNetEaseDomainsAndNames() throws {
+        for domain in ["icloud.com", "me.com", "mac.com"] {
+            let email = "person@\(domain)"
+            #expect(try IMAPProvider.icloudMail.imapHost(for: email) == "imap.mail.me.com")
+            #expect(try IMAPProvider.icloudMail.loginUsernames(for: email) == ["person", email])
+            #expect(IMAPProvider.icloudMail.accountID(email: email) == "icloud:\(email)")
+        }
+        for domain in ["163.com", "126.com", "yeah.net"] {
+            let email = "person@\(domain)"
+            #expect(try IMAPProvider.neteaseMail.imapHost(for: email) == "imap.\(domain)")
+            #expect(try IMAPProvider.neteaseMail.loginUsernames(for: email) == [email])
+            #expect(IMAPProvider.neteaseMail.accountID(email: email) == "netease:\(email)")
+        }
+        #expect(throws: IMAPAccountError.unsupportedDomain) {
+            try IMAPProvider.icloudMail.imapHost(for: "person@example.test")
+        }
+        #expect(throws: IMAPAccountError.unsupportedDomain) {
+            try IMAPProvider.neteaseMail.imapHost(for: "person@example.test")
+        }
+        #expect(
+            try IMAPAccountCredentials.validated(
+                provider: .neteaseMail, email: "person@163.com", secret: "a1b2c3d4e5f6g7h8"
+            ).email == "person@163.com")
+        #expect(throws: IMAPAccountError.invalidNetEaseAuthorizationCode) {
+            try IMAPAccountCredentials.validated(
+                provider: .neteaseMail, email: "person@163.com", secret: "short")
+        }
+    }
+
     @Test func pauseAndAccountRecordsMigrateWithoutChangingGmailIdentity() throws {
         let suite = "MailCodeFiller.provider-tests.\(UUID())"
         let preferences = try #require(UserDefaults(suiteName: suite))

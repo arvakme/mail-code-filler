@@ -1,0 +1,12 @@
+{
+  "subject": "Your phone update",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Phone number: 13800138000. Please review your profile.",
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic negative fixture.",
+  "source": "synthetic"
+}

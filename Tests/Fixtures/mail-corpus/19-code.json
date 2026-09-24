@@ -1,0 +1,17 @@
+{
+  "subject": "Microsoft confirmation code",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your verification code: 641218",
+    "html": "<p>Your verification code: 641218</p>"
+  },
+  "expected": {
+    "codes": [
+      "641218"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

@@ -1,3 +1,3 @@
 #include "App.xcconfig"
 PROVISIONING_PROFILE_SPECIFIER =
-CODE_SIGN_ENTITLEMENTS =
+CODE_SIGN_ENTITLEMENTS = Config/Local.entitlements

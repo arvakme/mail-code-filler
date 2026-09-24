@@ -1,0 +1,17 @@
+{
+  "subject": "滴滴登录验证码",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "滴滴 验证码：641206",
+    "html": "<p>滴滴 验证码：641206</p>"
+  },
+  "expected": {
+    "codes": [
+      "641206"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

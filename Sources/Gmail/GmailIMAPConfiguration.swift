@@ -13,12 +13,16 @@ struct IMAPFeedConfiguration: Sendable {
     var maxBodyBytes: Int
     var idleRenewal: Duration
     var livenessInterval: Duration
+    var codeWaitLivenessInterval: Duration
     var pollInterval: Duration
+    var codeWaitPollInterval: Duration
     var backoff: [Duration]
     var now: @Sendable () -> Date
 
     static let gmail = production(.gmail)
     static let qqMail = production(.qqMail)
+    static let icloudMail = production(.icloudMail)
+    static let neteaseMail = production(.neteaseMail)
 
     static func production(_ provider: IMAPProvider) -> IMAPFeedConfiguration {
         let descriptor = provider.descriptor
@@ -35,7 +39,9 @@ struct IMAPFeedConfiguration: Sendable {
             // inside CandidateVault.retention for both current providers.
             idleRenewal: .seconds(5 * 60),
             livenessInterval: .seconds(60),
-            pollInterval: .seconds(10),
+            codeWaitLivenessInterval: .seconds(4),
+            pollInterval: provider == .qqMail ? .seconds(10) : .seconds(60),
+            codeWaitPollInterval: .seconds(5),
             backoff: [.seconds(1), .seconds(2), .seconds(5), .seconds(10), .seconds(30)],
             now: Date.init)
     }
@@ -50,7 +56,9 @@ struct IMAPFeedConfiguration: Sendable {
         maxBodyBytes: Int = 64 * 1024,
         idleRenewal: Duration = .seconds(30),
         livenessInterval: Duration = .seconds(60),
+        codeWaitLivenessInterval: Duration = .milliseconds(40),
         pollInterval: Duration = .milliseconds(100),
+        codeWaitPollInterval: Duration = .milliseconds(50),
         backoff: [Duration] = [.milliseconds(50)]
     ) -> IMAPFeedConfiguration {
         IMAPFeedConfiguration(
@@ -64,7 +72,9 @@ struct IMAPFeedConfiguration: Sendable {
             maxBodyBytes: maxBodyBytes,
             idleRenewal: idleRenewal,
             livenessInterval: livenessInterval,
+            codeWaitLivenessInterval: codeWaitLivenessInterval,
             pollInterval: pollInterval,
+            codeWaitPollInterval: codeWaitPollInterval,
             backoff: backoff,
             now: now)
     }

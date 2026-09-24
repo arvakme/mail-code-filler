@@ -1,0 +1,14 @@
+{
+  "subject": "Airbnb confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Your confirmation code is 641231",
+  "expected": {
+    "codes": [
+      "641231"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

@@ -6,6 +6,7 @@ public enum GmailIMAPError: Error, Equatable, Sendable {
     case authenticationRejected
     case idleUnavailable
     case mailboxNotReadOnly
+    case rateLimited
 }
 
 extension GmailIMAPError: LocalizedError {
@@ -22,6 +23,8 @@ extension GmailIMAPError: LocalizedError {
             return "邮箱服务器不支持 IDLE，且此提供方没有轮询回退。"
         case .mailboxNotReadOnly:
             return "INBOX 没有处于只读状态，已断开，避免改动邮件。"
+        case .rateLimited:
+            return "邮箱服务器限制了连接频率。已停止自动重试，请稍后手动重新连接。"
         }
     }
 }

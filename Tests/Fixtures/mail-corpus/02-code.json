@@ -1,0 +1,14 @@
+{
+  "subject": "支付宝登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>支付宝 验证码：641201</p></body></html>",
+  "expected": {
+    "codes": [
+      "641201"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

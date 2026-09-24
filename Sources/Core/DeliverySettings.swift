@@ -38,6 +38,34 @@ public final class DeliverySettings {
     public var jevEnabled: Bool {
         didSet { preferences.set(jevEnabled, forKey: "jev-enabled") }
     }
+    public var fillShortcut: ShortcutBinding {
+        didSet { fillShortcut.save(to: preferences, key: ShortcutSettingsKeys.fill) }
+    }
+    public var chooserShortcut: ShortcutBinding {
+        didSet { chooserShortcut.save(to: preferences, key: ShortcutSettingsKeys.chooser) }
+    }
+    public var allowsBrowserAutomation: Bool {
+        didSet { preferences.set(allowsBrowserAutomation, forKey: ShortcutSettingsKeys.browserAutomation) }
+    }
+    public var otpFieldAutoTriggerEnabled: Bool {
+        didSet { preferences.set(otpFieldAutoTriggerEnabled, forKey: "otp-field-auto-trigger-enabled") }
+    }
+    public var otpFieldRequireAuthPage: Bool {
+        didSet { preferences.set(otpFieldRequireAuthPage, forKey: "otp-field-require-auth-page") }
+    }
+    public var clipboardAutoClearEnabled: Bool {
+        didSet { preferences.set(clipboardAutoClearEnabled, forKey: "clipboard-auto-clear-enabled") }
+    }
+    public var clipboardAutoClearSeconds: Int {
+        didSet {
+            if !Self.clipboardAutoClearChoices.contains(clipboardAutoClearSeconds) {
+                clipboardAutoClearSeconds = 30
+                return
+            }
+            preferences.set(clipboardAutoClearSeconds, forKey: "clipboard-auto-clear-seconds")
+        }
+    }
+    public static let clipboardAutoClearChoices = [30, 60, 120]
     public private(set) var doNotDisturbPeriod: DoNotDisturbPeriod? {
         didSet { persistDoNotDisturbPeriod() }
     }
@@ -60,6 +88,18 @@ public final class DeliverySettings {
             max(preferences.integer(forKey: "notification-seconds"), Self.notificationRange.lowerBound),
             Self.notificationRange.upperBound)
         jevEnabled = preferences.bool(forKey: "jev-enabled")
+        let storedFill = ShortcutBinding.load(
+            from: preferences, key: ShortcutSettingsKeys.fill, fallback: .defaultFill)
+        let storedChooser = ShortcutBinding.load(
+            from: preferences, key: ShortcutSettingsKeys.chooser, fallback: .defaultChooser)
+        fillShortcut = storedFill.conflicts(with: storedChooser) ? .defaultFill : storedFill
+        chooserShortcut = storedFill.conflicts(with: storedChooser) ? .defaultChooser : storedChooser
+        allowsBrowserAutomation = preferences.bool(forKey: ShortcutSettingsKeys.browserAutomation)
+        otpFieldAutoTriggerEnabled = preferences.bool(forKey: "otp-field-auto-trigger-enabled")
+        otpFieldRequireAuthPage = preferences.bool(forKey: "otp-field-require-auth-page")
+        clipboardAutoClearEnabled = preferences.bool(forKey: "clipboard-auto-clear-enabled")
+        let clearSeconds = preferences.integer(forKey: "clipboard-auto-clear-seconds")
+        clipboardAutoClearSeconds = Self.clipboardAutoClearChoices.contains(clearSeconds) ? clearSeconds : 30
         if let rawChoice = preferences.string(forKey: "do-not-disturb-choice"),
             let choice = DoNotDisturbChoice(rawValue: rawChoice),
             let startedAt = preferences.object(forKey: "do-not-disturb-started-at") as? Date

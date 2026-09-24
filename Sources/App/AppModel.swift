@@ -33,6 +33,12 @@ struct ArrivalNotice {
 @MainActor @Observable
 final class AppModel {
     let vault = CandidateVault()
+    let codeWaitController = CodeWaitModeController()
+    let recentMissedMail = RecentMissedMailRing()
+    let loginManager = LaunchAtLoginController(backend: SMAppLaunchAtLogin())
+    @ObservationIgnored lazy var activePageProvider = BrowserActivePageProvider { [weak self] in
+        self?.settings.allowsBrowserAutomation ?? false
+    }
     private(set) var accounts: [IMAPAccountSession] = []
     private(set) var accountRecords: [IMAPAccount] = []
     private(set) var accountSetupProblem: String?
@@ -52,6 +58,8 @@ final class AppModel {
     private(set) var lastCopiedID: Candidate.ID?
     var onArrival: ((ArrivalNotice) -> Void)?
     var onCandidateListChanged: (() -> Void)?
+    var onShortcutBindingsChanged: ((ShortcutBinding, ShortcutBinding) -> Bool)?
+    var onCodeWaitTriggerSettingsChanged: (() -> Void)?
     private(set) var isDoNotDisturbActive = false
     @ObservationIgnored private let clipboard = CandidateClipboard()
     @ObservationIgnored private let preferences: UserDefaults
@@ -96,6 +104,26 @@ final class AppModel {
     func setScreenshotPermission(_ allowed: Bool) {
         settings.allowsScreenshots = allowed
         onScreenshotSettingChanged?(allowed)
+    }
+
+    func setClipboardAutoClearEnabled(_ enabled: Bool) {
+        settings.clipboardAutoClearEnabled = enabled
+        if !enabled { clipboard.autoClear.cancel() }
+    }
+
+    func updateShortcutBindings(fill: ShortcutBinding, chooser: ShortcutBinding) -> Bool {
+        guard fill.isValid, chooser.isValid, !fill.conflicts(with: chooser) else {
+            shortcutStatus = "快捷键无效或两个动作使用了同一组合。"
+            return false
+        }
+        guard onShortcutBindingsChanged?(fill, chooser) == true else {
+            shortcutStatus = "快捷键被其他 App 占用；保留原组合，请更换后重试。"
+            return false
+        }
+        settings.fillShortcut = fill
+        settings.chooserShortcut = chooser
+        shortcutStatus = "\(fill.displayName) · 快速填入；\(chooser.displayName) · 选择验证码"
+        return true
     }
 
     func start() {
@@ -182,7 +210,7 @@ final class AppModel {
     var recognitionNotice: String? { accounts.compactMap(\.recognitionNotice).first }
     var lastProcessingSummary: String? { accounts.compactMap(\.lastProcessingSummary).first }
     var emptyCandidateDescription: String {
-        guard !accountRecords.isEmpty else { return "连接 Gmail 或 QQ 邮箱，或先离线试用。\n新码自动提示，复制后手动粘贴。" }
+        guard !accountRecords.isEmpty else { return "连接 Gmail、QQ、iCloud 或网易邮箱，或先离线试用。\n新码自动提示，复制后手动粘贴。" }
         if accounts.contains(where: { $0.phase == .failed }) {
             return "至少一个邮箱连接需要处理。\n请查看上方各账户状态。"
         }
@@ -211,8 +239,10 @@ final class AppModel {
 
     private func makeSession(for account: IMAPAccount) -> IMAPAccountSession {
         let session = IMAPAccountSession(
-            account: account, vault: vault, feed: IMAPAccountFeed(provider: account.provider),
+            account: account, vault: vault,
+            feed: IMAPAccountFeed(provider: account.provider, codeWaitSignal: codeWaitController),
             credentials: credentials, preferences: preferences)
+        session.recentMissedMail = recentMissedMail
         session.onCandidatesChanged = { [weak self] in await self?.refresh() }
         if settings.jevEnabled, let key = try? JevCredentialStore().load() {
             session.setSemanticResolver(try? JevCodeResolver(apiKey: key))
@@ -441,7 +471,7 @@ final class AppModel {
             return false
         }
         do {
-            try clipboard.copy(candidate, now: now)
+            try clipboard.copy(candidate, now: now, autoClearSeconds: clipboardAutoClearSeconds)
             lastCopiedID = id
             status = "已复制，在目标输入框按 ⌘V 粘贴。剪贴板历史工具可能保留验证码。"
             await consumeCandidateAfterSuccessfulAction(id, now: Date())
@@ -461,7 +491,7 @@ final class AppModel {
             return false
         }
         do {
-            try clipboard.copy(candidate, now: now)
+            try clipboard.copy(candidate, now: now, autoClearSeconds: clipboardAutoClearSeconds)
             lastCopiedID = id
             status = "已自动复制，在目标输入框按 ⌘V 粘贴。"
             return true
@@ -469,6 +499,49 @@ final class AppModel {
             status = error.localizedDescription
             return false
         }
+    }
+
+    private var clipboardAutoClearSeconds: Int? {
+        settings.clipboardAutoClearEnabled ? settings.clipboardAutoClearSeconds : nil
+    }
+
+    /// The hotkey only selects live code candidates. AX insertion is verified by the destination.
+    func fastFillBestCode() async -> ArrivalActionResult? {
+        let page = activePageProvider.currentPage()
+        let now = Date()
+        guard !isStopping,
+            let best = CurrentSiteCandidateRanker().bestCode(in: candidates, for: page, now: now)
+        else { return nil }
+        let destination = try? AccessibilityDestination()
+        guard let candidate = await vault.candidate(id: best.id, now: Date()),
+            let code = candidate.code, candidate.expiresAt > Date()
+        else { return .failed("候选已过期或移除。") }
+        if let destination {
+            do {
+                try destination.insert(code)
+                status = "已填入输入框；未提交表单。"
+                await consumeCandidateAfterSuccessfulAction(candidate.id, now: Date())
+                return .filled
+            } catch {
+                // An uncertain AX write is never retried. The fallback writes the clipboard once.
+            }
+        }
+        guard await copyCandidate(candidate.id) else { return .failed(status) }
+        status = "无法安全填入，已复制；请检查输入框后按 ⌘V 粘贴。"
+        return .copiedAfterFailure(status)
+    }
+
+    func refetchMissedMail(_ entry: RecentMissedMail) async throws -> ReceivedMail {
+        guard !isOfflinePreview,
+            accountRecords.contains(where: { $0.id == entry.id.account }),
+            let session = accounts.first(where: { $0.account.id == entry.id.account }),
+            session.phase != .paused, session.phase != .notConfigured,
+            session.phase != .stopping,
+            let login = try credentials.load(accountID: entry.id.account)
+        else {
+            throw IMAPMessageRefetchError.accountMismatch
+        }
+        return try await GmailMissedMailFetcher().fetchReadOnly(login: login, message: entry.id)
     }
 
     private func consumeCandidateAfterSuccessfulAction(_ id: Candidate.ID, now: Date) async {
@@ -611,6 +684,11 @@ final class AppModel {
         expirationTask?.cancel()
         doNotDisturbTimer?.cancel()
         if supportsAutoFill { fillCoordinator.cancel() }
+        clipboard.autoClear.cancel()
+        Task {
+            await codeWaitController.cancel()
+            await recentMissedMail.clear()
+        }
     }
 
     private func scheduleExpiration() {

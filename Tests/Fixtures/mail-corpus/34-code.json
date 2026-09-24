@@ -1,0 +1,14 @@
+{
+  "subject": "康明斯 confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>Your verification code: 641233</p></body></html>",
+  "expected": {
+    "codes": [
+      "641233"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

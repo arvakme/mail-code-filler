@@ -1,0 +1,17 @@
+{
+  "subject": "工行登录验证码",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "工行 验证码：641214",
+    "html": "<p>工行 验证码：641214</p>"
+  },
+  "expected": {
+    "codes": [
+      "641214"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

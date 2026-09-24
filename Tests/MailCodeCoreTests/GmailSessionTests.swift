@@ -196,12 +196,15 @@ struct GmailSessionTests {
         let fixture = try semanticFixture()
         defer { fixture.preferences.removePersistentDomain(forName: fixture.name) }
         let session = fixture.session
+        let missed = RecentMissedMailRing()
+        session.recentMissedMail = missed
         var starts = fixture.feed.starts.makeAsyncIterator()
         var requests = fixture.resolver.requests.makeAsyncIterator()
         try session.connect(email: "person@gmail.com", appPassword: "abcdefghijklmnop")
         _ = await starts.next()
         let unresolved = semanticMail(uid: 1, body: "Enter 483921 to finish signing in.")
         await fixture.feed.emit(.message(unresolved))
+        #expect(await missed.snapshot().map(\.id) == [unresolved.id])
         #expect(await requests.next() == 1)
         let jobs = Array(session.semanticJobs.values)
         await fixture.feed.emit(.message(unresolved))
@@ -210,6 +213,7 @@ struct GmailSessionTests {
         #expect(await fixture.resolver.count == 1)
         await fixture.resolver.finish(code: "483921")
         for job in jobs { await job.value }
+        #expect(await missed.snapshot().isEmpty)
         #expect(Set(await fixture.vault.snapshot(now: Date()).compactMap(\.code)) == ["001234", "483921"])
         await session.pause()
     }

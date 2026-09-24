@@ -1,0 +1,12 @@
+{
+  "subject": "Your order receipt",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Order number: 870523. Total: $49.00.",
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic negative fixture.",
+  "source": "synthetic"
+}

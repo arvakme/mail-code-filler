@@ -1,0 +1,17 @@
+{
+  "subject": "淘宝登录验证码",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "淘宝 验证码：641202",
+    "html": "<p>淘宝 验证码：641202</p>"
+  },
+  "expected": {
+    "codes": [
+      "641202"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

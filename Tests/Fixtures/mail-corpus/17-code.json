@@ -1,0 +1,14 @@
+{
+  "subject": "Meta confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Your confirmation code for Meta:\n641216",
+  "expected": {
+    "codes": [
+      "641216"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

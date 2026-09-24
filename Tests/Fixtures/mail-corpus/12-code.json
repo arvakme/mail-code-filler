@@ -1,0 +1,14 @@
+{
+  "subject": "网易登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "网易 验证码：641211",
+  "expected": {
+    "codes": [
+      "641211"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

@@ -45,6 +45,7 @@ struct FillCoordinatorTests {
         await #expect(throws: Failure.self) { try await coordinator.fill(candidate.id) }
         await #expect(throws: FillError.noTarget) { try await coordinator.fill(candidate.id) }
         #expect(destination.writes == ["001234"])
+        #expect(await vault.candidate(id: candidate.id, now: Date()) != nil)
     }
 
     @Test func expiryDuringCandidateLookupDoesNotWrite() async throws {
@@ -75,5 +76,17 @@ struct FillCoordinatorTests {
             try await expired.fill(candidate.id)
         }
         #expect(destination.writes.isEmpty)
+    }
+
+    @Test func successfulWriteNeedsExplicitConsumption() async throws {
+        let (vault, candidate) = try await fixture()
+        let coordinator = FillCoordinator(vault: vault)
+        let destination = Destination()
+        coordinator.prepare(destination)
+        try await coordinator.fill(candidate.id)
+        #expect(destination.writes == ["001234"])
+        #expect(await vault.candidate(id: candidate.id, now: Date()) != nil)
+        _ = await vault.consume(id: candidate.id, afterSuccessfulAction: true, now: Date())
+        #expect(await vault.candidate(id: candidate.id, now: Date()) == nil)
     }
 }

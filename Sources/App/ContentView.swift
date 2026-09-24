@@ -7,6 +7,9 @@ struct ContentView: View {
     @State private var accountToEdit: IMAPAccount?
     @State private var associationCandidate: Candidate?
     @State private var contentHeight: CGFloat = 0
+    @State private var capturedPage: ActivePage?
+    @State private var recentMissedMail: [RecentMissedMail] = []
+    @State private var missedSampleStore: MissedDetectionSampleStore?
     @FocusState private var queueHasFocus: Bool
 
     var body: some View {
@@ -17,7 +20,19 @@ struct ContentView: View {
                     case .main:
                         mainPage
                     case .deliverySettings:
-                        DeliverySettingsView(model: model, onBack: showMain)
+                        DeliverySettingsView(
+                            model: model, onBack: showMain,
+                            onOpenSamples: { Task { await showMissedSamples() } })
+                    case .missedSamples:
+                        if let missedSampleStore {
+                            VStack(alignment: .leading) {
+                                Button("返回设置") { page = .deliverySettings }
+                                MissedDetectionSamplesView(
+                                    recent: recentMissedMail,
+                                    refetch: { try await model.refetchMissedMail($0) },
+                                    store: missedSampleStore)
+                            }
+                        }
                     case .accountEditor:
                         IMAPAccountFormView(model: model, existingAccount: accountToEdit, onBack: showMain)
                     case .autoFill:
@@ -48,16 +63,23 @@ struct ContentView: View {
         .focusable()
         .focused($queueHasFocus)
         .focusEffectDisabled()
-        .onAppear { queueHasFocus = page == .main }
-        .onChange(of: page) { queueHasFocus = page == .main }
+        .onAppear {
+            queueHasFocus = page == .main
+            capturedPage = model.activePageProvider.currentPage()
+        }
+        .onDisappear { capturedPage = nil }
+        .onChange(of: page) {
+            queueHasFocus = page == .main
+            if page == .main { capturedPage = model.activePageProvider.currentPage() }
+        }
         .onKeyPress(.upArrow) {
             guard page == .main else { return .ignored }
-            model.moveSelection(by: -1)
+            moveMenuSelection(by: -1)
             return .handled
         }
         .onKeyPress(.downArrow) {
             guard page == .main else { return .ignored }
-            model.moveSelection(by: 1)
+            moveMenuSelection(by: 1)
             return .handled
         }
         .onKeyPress(.return) {
@@ -69,7 +91,10 @@ struct ContentView: View {
             guard page == .main, press.modifiers.contains(.command),
                 let number = Int(press.characters), (1...9).contains(number)
             else { return .ignored }
-            model.performPrimaryAction(at: number - 1)
+            if rankedMenuCandidates.indices.contains(number - 1) {
+                let id = rankedMenuCandidates[number - 1].id
+                Task { await model.performPrimaryAction(id) }
+            }
             return .handled
         }
     }
@@ -120,10 +145,11 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             doNotDisturbControl
+            CodeWaitControlView(controller: model.codeWaitController)
             if let problem = model.recognitionNotice ?? model.accountSetupProblem ?? model.jevProblem {
                 Text(problem).font(.caption).foregroundStyle(.red)
             }
-            CandidateList(model: model)
+            CandidateList(model: model, rankedCandidates: rankedMenuCandidates)
             HStack {
                 if model.accountRecords.isEmpty {
                     Button("离线试用") { Task { await model.loadSample() } }
@@ -140,16 +166,14 @@ struct ContentView: View {
                 .accessibilityIdentifier("operation-status")
             Divider()
             VStack(alignment: .leading, spacing: 8) {
-                if model.supportsAutoFill {
-                    HStack {
-                        Text(model.shortcutStatus).font(.callout)
-                        Spacer()
-                        Button("检查权限") { model.checkPermission() }.buttonStyle(.link)
-                    }
+                HStack {
+                    Text(model.shortcutStatus).font(.callout)
+                    Spacer()
+                    Button("检查权限") { model.checkPermission() }.buttonStyle(.link)
                 }
                 Text("提示默认跟随鼠标出现，也可改为跟随输入光标；拖动标题栏可移动卡片，不会抢焦点。点击时按设置尝试填入或复制。")
                     .font(.caption).foregroundStyle(.secondary)
-                Text("候选最长保留 10 分钟，不代表网站有效期。剪贴板中的码不会自动清除。")
+                Text("候选最长保留 10 分钟，不代表网站有效期。剪贴板自动清除可在设置中开启。")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -197,6 +221,18 @@ struct ContentView: View {
         page = .main
     }
 
+    private var rankedMenuCandidates: [RankedCandidate] {
+        CurrentSiteCandidateRanker().rank(model.candidates, for: capturedPage)
+    }
+
+    private func moveMenuSelection(by offset: Int) {
+        let ranked = rankedMenuCandidates
+        guard !ranked.isEmpty else { return }
+        let current = ranked.firstIndex { $0.id == model.selectedID }
+        let next = current.map { min(max($0 + offset, 0), ranked.count - 1) } ?? 0
+        model.select(ranked[next].candidate)
+    }
+
     private func showAddAccount() {
         accountToEdit = nil
         page = .accountEditor
@@ -207,9 +243,21 @@ struct ContentView: View {
         page = .accountEditor
     }
 
+    private func showMissedSamples() async {
+        do {
+            let store = try MissedDetectionSampleStore()
+            recentMissedMail = await model.recentMissedMail.snapshot()
+            missedSampleStore = store
+            page = .missedSamples
+        } catch {
+            model.status = "无法打开加密样本：\(error.localizedDescription)"
+        }
+    }
+
     private enum Page: Equatable {
         case main
         case deliverySettings
+        case missedSamples
         case accountEditor
         case autoFill
     }

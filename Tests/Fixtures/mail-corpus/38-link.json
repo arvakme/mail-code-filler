@@ -1,0 +1,17 @@
+{
+  "subject": "Sign in to your account",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>Sign in to your account</p><a href=\"https://example.test/login/github\">Sign in to your account</a></body></html>",
+  "expected": {
+    "codes": [],
+    "links": [
+      {
+        "url": "https://example.test/login/github",
+        "purpose": "signIn"
+      }
+    ]
+  },
+  "notes": "Synthetic link regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

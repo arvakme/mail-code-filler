@@ -1,4 +1,5 @@
 import AppKit
+import MailCodeCore
 import SwiftUI
 
 @MainActor
@@ -7,9 +8,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let panel: NSPanel
     private var activationObserver: NSObjectProtocol?
     private var sleepObserver: NSObjectProtocol?
+    private let pageProvider: any ActivePageProviding
 
-    init(model: AppModel) {
+    init(model: AppModel, pageProvider: any ActivePageProviding = BrowserActivePageProvider()) {
         self.model = model
+        self.pageProvider = pageProvider
         panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 380, height: 440),
             styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
@@ -24,8 +27,6 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.level = .floating
         panel.sharingType = model.settings.allowsScreenshots ? .readOnly : .none
         panel.delegate = self
-        panel.contentView = NSHostingView(
-            rootView: CandidatePanel(model: model, close: { [weak self] in self?.close() }))
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -44,6 +45,11 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func show() {
         close()
+        let anchor = AccessibilityDestination.placementAnchor()
+        let page = pageProvider.currentPage()
+        panel.contentView = NSHostingView(
+            rootView: CandidatePanel(
+                model: model, close: { [weak self] in self?.close() }, page: page))
         updateScreenshotSharing()
         do {
             let destination = try AccessibilityDestination()
@@ -53,7 +59,20 @@ final class PanelController: NSObject, NSWindowDelegate {
         } catch {
             model.status = error.localizedDescription
         }
-        panel.center()
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(anchor.origin) })
+            ?? NSScreen.main
+        {
+            let visible = screen.visibleFrame
+            let x = min(
+                max(anchor.midX - panel.frame.width / 2, visible.minX),
+                visible.maxX - panel.frame.width)
+            let y = min(
+                max(anchor.minY - panel.frame.height - 8, visible.minY),
+                visible.maxY - panel.frame.height)
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        } else {
+            panel.center()
+        }
         panel.makeKeyAndOrderFront(nil)
     }
 
@@ -66,6 +85,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         model.fillCoordinator.cancel()
         model.targetName = nil
         panel.orderOut(nil)
+        panel.contentView = nil
     }
 
     func windowDidResignKey(_ notification: Notification) { close() }

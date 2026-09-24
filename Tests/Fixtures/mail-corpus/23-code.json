@@ -1,0 +1,17 @@
+{
+  "subject": "Slack confirmation code",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your verification code: 641222",
+    "html": "<p>Your verification code: 641222</p>"
+  },
+  "expected": {
+    "codes": [
+      "641222"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

@@ -1,0 +1,14 @@
+{
+  "subject": "Apple confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Your confirmation code is 641219",
+  "expected": {
+    "codes": [
+      "641219"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

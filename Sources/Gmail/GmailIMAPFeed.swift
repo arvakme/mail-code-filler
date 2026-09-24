@@ -9,17 +9,18 @@ import Synchronization
 public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
     private static let logger = Logger(subsystem: "dev.zhijie.MailCodeFiller", category: "imap")
     private let configuration: IMAPFeedConfiguration
+    private let codeWaitSignal: (any CodeWaitSignal)?
     private let active = Mutex<IMAPServer?>(nil)
 
     public convenience init() {
         self.init(provider: .gmail)
     }
 
-    public convenience init(provider: IMAPProvider) {
-        self.init(configuration: .production(provider))
+    public convenience init(provider: IMAPProvider, codeWaitSignal: (any CodeWaitSignal)? = nil) {
+        self.init(configuration: .production(provider), codeWaitSignal: codeWaitSignal)
     }
 
-    init(configuration: IMAPFeedConfiguration) {
+    init(configuration: IMAPFeedConfiguration, codeWaitSignal: (any CodeWaitSignal)? = nil) {
         GmailMailLogging.install()
         precondition(!configuration.backoff.isEmpty)
         precondition(configuration.catchupLimit > 0)
@@ -27,6 +28,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         precondition(configuration.livenessInterval > .zero)
         precondition(configuration.pollInterval > .zero)
         self.configuration = configuration
+        self.codeWaitSignal = codeWaitSignal
     }
 
     public func run(
@@ -67,7 +69,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
             do {
                 try await session(credentials: credentials, attempt: attempt, onEvent: onEvent)
             } catch {
-                let mapped = Self.map(error)
+                let mapped = Self.map(error, provider: configuration.provider.provider)
                 Self.logFailure(mapped, provider: configuration.provider.provider)
                 if mapped is CancellationError || mapped is GmailIMAPError {
                     throw mapped
@@ -82,8 +84,11 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         attempt: Attempt,
         onEvent: @escaping @Sendable (IMAPFeedEvent) async -> Void
     ) async throws {
+        let host =
+            configuration.host == configuration.provider.host
+            ? try credentials.provider.imapHost(for: credentials.email) : configuration.host
         let server = IMAPServer(
-            host: configuration.host,
+            host: host,
             port: configuration.port,
             transportSecurity: configuration.transportSecurity,
             certificateVerificationPolicy: .fullVerification,
@@ -96,8 +101,23 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         defer { active.withLock { if $0 === server { $0 = nil } } }
 
         do {
+            if credentials.provider == .neteaseMail {
+                let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+                await server.setClientIdentification(
+                    Identification(name: "Mail Code Filler", version: version))
+            }
             try await server.connect()
-            try await server.login(username: credentials.email, password: credentials.appPassword)
+            let usernames = try credentials.provider.loginUsernames(for: credentials.email)
+            for (index, username) in usernames.enumerated() {
+                do {
+                    try await server.login(username: username, password: credentials.appPassword)
+                    break
+                } catch {
+                    guard index + 1 < usernames.count, Self.isAuthenticationError(error) else {
+                        throw error
+                    }
+                }
+            }
             // SwiftMail stores a non-empty LOGIN capability list and does not send
             // CAPABILITY again. The watcher refreshes capabilities only if IDLE is absent.
             let watch = try await server.connection(named: "inbox-watch")
@@ -119,6 +139,10 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                     continue
                 }
                 let inbox = WatchInbox()
+                let cadenceObserver = Task { [codeWaitSignal] in
+                    guard let codeWaitSignal else { return }
+                    for await _ in codeWaitSignal.updates() { inbox.activity() }
+                }
                 let consumer = Task {
                     for await event in stream {
                         if case .bye = event {
@@ -138,11 +162,15 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                         announcedMissingValidity: &announcedMissingValidity,
                         attempt: attempt, onEvent: onEvent)
                     _ = await consumer.value
+                    cadenceObserver.cancel()
+                    _ = await cadenceObserver.value
                     if case .renew = action { continue }
                 } catch {
                     consumer.cancel()
+                    cadenceObserver.cancel()
                     try? await server.disconnect()
                     _ = await consumer.value
+                    _ = await cadenceObserver.value
                     throw error
                 }
             }
@@ -186,9 +214,9 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
             futureSkew: configuration.futureSkew,
             handled: handled
         )
-        if let first = decision.fetchUIDs.min(), let last = decision.fetchUIDs.max() {
+        if !decision.fetchUIDs.isEmpty {
             Self.logger.notice(
-                "provider=\(self.configuration.provider.provider.rawValue, privacy: .public) event=fetch uid_first=\(first, privacy: .public) uid_last=\(last, privacy: .public) uid_count=\(decision.fetchUIDs.count, privacy: .public)"
+                "provider=\(self.configuration.provider.provider.rawValue, privacy: .public) event=fetch count=\(decision.fetchUIDs.count, privacy: .public)"
             )
         }
         for uid in decision.expiredUIDs {
@@ -345,6 +373,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         let deadline = ContinuousClock.now.advanced(by: configuration.idleRenewal)
         var nextLiveness = ContinuousClock.now.advanced(by: configuration.livenessInterval)
         var lastKnownExists = 0
+        var needsCatchup = true
         while true {
             try Task.checkCancellation()
             if ContinuousClock.now >= deadline {
@@ -353,53 +382,60 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                 return .renew
             }
             let mark = inbox.generation()
-            await Self.emitState(
-                .synchronizing, provider: configuration.provider.provider,
-                attempt: attempt, onEvent: onEvent)
-            let synchronizedAt = ContinuousClock.now
-            let selection = try await server.examineMailbox(configuration.provider.inboxName)
-            lastKnownExists = selection.messageCount
-            guard selection.isReadOnly else { throw GmailIMAPError.mailboxNotReadOnly }
-            if attempt.validity != selection.uidValidity.value {
-                if attempt.validity != nil { attempt.skippedOversized.removeAll() }
-                attempt.validity = selection.uidValidity.value
-                handled.removeAll()
-                announcedFuture.removeAll()
-                announcedIncomplete = false
+            if needsCatchup {
+                await Self.emitState(
+                    .synchronizing, provider: configuration.provider.provider,
+                    attempt: attempt, onEvent: onEvent)
+                let synchronizedAt = ContinuousClock.now
+                let selection = try await server.examineMailbox(configuration.provider.inboxName)
+                lastKnownExists = selection.messageCount
+                guard selection.isReadOnly else { throw GmailIMAPError.mailboxNotReadOnly }
+                if attempt.validity != selection.uidValidity.value {
+                    if attempt.validity != nil { attempt.skippedOversized.removeAll() }
+                    attempt.validity = selection.uidValidity.value
+                    handled.removeAll()
+                    announcedFuture.removeAll()
+                    announcedIncomplete = false
+                }
+                if selection.uidValidity.value == 0 && !announcedMissingValidity {
+                    announcedMissingValidity = true
+                    await onEvent(.notice(GmailNotice.missingValidity))
+                }
+                let sawIncomplete = try await catchup(
+                    server: server, selection: selection, accountID: accountID,
+                    handled: &handled, announcedFuture: &announcedFuture,
+                    attempt: attempt, synchronizedAt: synchronizedAt,
+                    yieldToNewMail: { inbox.generation() != mark }, onEvent: onEvent)
+                if sawIncomplete && !announcedIncomplete {
+                    announcedIncomplete = true
+                    await onEvent(.notice(GmailNotice.incomplete))
+                }
+                if !sawIncomplete { announcedIncomplete = false }
+                if inbox.generation() != mark { continue }
+                needsCatchup = false
             }
-            if selection.uidValidity.value == 0 && !announcedMissingValidity {
-                announcedMissingValidity = true
-                await onEvent(.notice(GmailNotice.missingValidity))
-            }
-            let sawIncomplete = try await catchup(
-                server: server, selection: selection, accountID: accountID,
-                handled: &handled, announcedFuture: &announcedFuture,
-                attempt: attempt, synchronizedAt: synchronizedAt,
-                yieldToNewMail: { inbox.generation() != mark }, onEvent: onEvent)
-            if sawIncomplete && !announcedIncomplete {
-                announcedIncomplete = true
-                await onEvent(.notice(GmailNotice.incomplete))
-            }
-            if !sawIncomplete { announcedIncomplete = false }
-            if inbox.generation() != mark { continue }
             attempt.failures = 0
             await Self.emitState(
                 .listening, provider: configuration.provider.provider,
                 attempt: attempt, onEvent: onEvent)
+            let waiting = await codeWaitSignal?.currentWindow() != nil
+            let interval = waiting ? configuration.codeWaitLivenessInterval : configuration.livenessInterval
+            let nextCheck = min(nextLiveness, ContinuousClock.now.advanced(by: interval))
             let wake = try await IdleWait.wait(
                 signaled: { try await inbox.next(since: mark) },
-                renewal: ContinuousClock.now.duration(to: min(deadline, nextLiveness)),
-                terminate: {
-                    inbox.expectStreamEnd()
-                    try await watch.done()
-                },
+                renewal: ContinuousClock.now.duration(to: min(deadline, nextCheck)),
                 disconnect: { try? await server.disconnect() }
             )
             switch wake {
             case .activity:
+                needsCatchup = true
                 continue
             case .timer:
-                if ContinuousClock.now >= deadline { return .renew }
+                if ContinuousClock.now >= deadline {
+                    inbox.expectStreamEnd()
+                    try await watch.done()
+                    return .renew
+                }
                 let events = try await server.noop()
                 let existsCounts = events.compactMap { event -> Int? in
                     if case .exists(let count) = event { return count }
@@ -412,10 +448,12 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                         Self.logger.notice(
                             "provider=\(self.configuration.provider.provider.rawValue, privacy: .public) event=mailbox_advanced exists_count=\(latest, privacy: .public)"
                         )
+                        needsCatchup = true
                         continue
                     }
                 }
                 if events.contains(where: Self.mailboxChanged) || inbox.generation() != mark {
+                    needsCatchup = true
                     continue
                 }
                 // A completed NOOP is the latest successful liveness check even
@@ -423,7 +461,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                 await Self.emitState(
                     .listening, provider: configuration.provider.provider,
                     attempt: attempt, onEvent: onEvent)
-                nextLiveness = ContinuousClock.now.advanced(by: configuration.livenessInterval)
+                nextLiveness = ContinuousClock.now.advanced(by: interval)
             case .bye, .closed:
                 throw GmailTransportError()
             }
@@ -443,6 +481,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         attempt: Attempt,
         onEvent: @escaping @Sendable (IMAPFeedEvent) async -> Void
     ) async throws {
+        var lastCheck = ContinuousClock.now
         while true {
             try Task.checkCancellation()
             await Self.emitState(
@@ -473,11 +512,31 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
             }
             if !sawIncomplete { announcedIncomplete = false }
             attempt.failures = 0
-            try await Task.sleep(for: configuration.pollInterval)
+            lastCheck = ContinuousClock.now
+            try await sleepForPoll(from: lastCheck)
             _ = try await watch.noop()
             await Self.emitState(
                 .polling, provider: configuration.provider.provider,
                 attempt: attempt, onEvent: onEvent)
+        }
+    }
+
+    private func sleepForPoll(from start: ContinuousClock.Instant) async throws {
+        while true {
+            try Task.checkCancellation()
+            let waiting = await codeWaitSignal?.currentWindow() != nil
+            let interval = waiting ? configuration.codeWaitPollInterval : configuration.pollInterval
+            let remaining = ContinuousClock.now.duration(to: start.advanced(by: interval))
+            if remaining <= .zero { return }
+            try await Task.sleep(for: min(remaining, .seconds(1)))
+        }
+    }
+
+    private static func isAuthenticationError(_ error: Error) -> Bool {
+        guard let error = error as? IMAPError else { return false }
+        switch error {
+        case .loginFailed, .authFailed: return true
+        default: return false
         }
     }
 
@@ -500,11 +559,19 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         return reason.range(of: "exceeded", options: .caseInsensitive) != nil
     }
 
-    private static func map(_ error: Error) -> Error {
+    private static func map(_ error: Error, provider: IMAPProvider) -> Error {
         if error is CancellationError || error is GmailIMAPError || error is GmailTransportError {
             return error
         }
         guard let imap = error as? IMAPError else { return GmailTransportError() }
+        if provider == .neteaseMail, let reason = Self.serverReason(imap) {
+            let text = reason.lowercased()
+            if ["frequency limit", "rate limit", "too many connections", "流量限制", "连接过于频繁"]
+                .contains(where: text.contains)
+            {
+                return GmailIMAPError.rateLimited
+            }
+        }
         switch imap {
         case .loginFailed, .authFailed, .unsupportedAuthMechanism:
             return GmailIMAPError.authenticationRejected
@@ -512,6 +579,15 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
             return GmailIMAPError.idleUnavailable
         default:
             return GmailTransportError(category: transportErrorCategory(imap))
+        }
+    }
+
+    private static func serverReason(_ error: IMAPError) -> String? {
+        switch error {
+        case .loginFailed(let reason), .authFailed(let reason), .commandFailed(let reason),
+            .selectFailed(let reason), .connectionFailed(let reason):
+            return reason
+        default: return nil
         }
     }
 
@@ -541,6 +617,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
             case .authenticationRejected: category = "authentication"
             case .idleUnavailable: category = "idle_unavailable"
             case .mailboxNotReadOnly: category = "mailbox_mode"
+            case .rateLimited: category = "rate_limited"
             }
         } else if let transport = error as? GmailTransportError {
             category = transport.category
@@ -756,12 +833,11 @@ private enum IdleWait {
     static func wait(
         signaled: @escaping @Sendable () async throws -> IdleWake,
         renewal: Duration,
-        terminate: @escaping @Sendable () async throws -> Void,
         disconnect: @escaping @Sendable () async -> Void
     ) async throws -> IdleWake {
         try await withTaskCancellationHandler {
             try await race(
-                signaled: signaled, renewal: renewal, terminate: terminate, disconnect: disconnect)
+                signaled: signaled, renewal: renewal, disconnect: disconnect)
         } onCancel: {
             Task { await disconnect() }
         }
@@ -770,7 +846,6 @@ private enum IdleWait {
     private static func race(
         signaled: @escaping @Sendable () async throws -> IdleWake,
         renewal: Duration,
-        terminate: @escaping @Sendable () async throws -> Void,
         disconnect: @escaping @Sendable () async -> Void
     ) async throws -> IdleWake {
         try await withThrowingTaskGroup(of: IdleRace.self) { group in
@@ -802,18 +877,6 @@ private enum IdleWait {
                 try await drain(&group)
                 throw CancellationError()
             case .wake(.timer):
-                do {
-                    try await terminate()
-                } catch is CancellationError {
-                    await disconnect()
-                    try await drain(&group)
-                    throw CancellationError()
-                } catch {
-                    let category = transportErrorCategory(error)
-                    await disconnect()
-                    try await drain(&group)
-                    throw GmailTransportError(category: category)
-                }
                 try await drain(&group)
                 try Task.checkCancellation()
                 return .timer

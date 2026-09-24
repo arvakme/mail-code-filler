@@ -1,0 +1,17 @@
+{
+  "subject": "Dropbox confirmation code",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your verification code: 641226",
+    "html": "<p>Your verification code: 641226</p>"
+  },
+  "expected": {
+    "codes": [
+      "641226"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

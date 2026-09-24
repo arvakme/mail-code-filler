@@ -1,0 +1,14 @@
+{
+  "subject": "微信登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "请使用以下验证码登录 微信：\n641212",
+  "expected": {
+    "codes": [
+      "641212"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

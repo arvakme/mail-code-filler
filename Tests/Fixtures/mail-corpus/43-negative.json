@@ -1,0 +1,12 @@
+{
+  "subject": "Monthly account statement",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "Balance $6021. Transaction 843501.",
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic negative fixture.",
+  "source": "synthetic"
+}

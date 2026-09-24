@@ -1,0 +1,12 @@
+{
+  "subject": "Weekly newsletter",
+  "from-domain": "example.test",
+  "mime": "text/plain",
+  "body": "This week: 20260924 releases and 2026 survey.",
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic negative fixture.",
+  "source": "synthetic"
+}

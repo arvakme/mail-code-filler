@@ -35,6 +35,7 @@ final class IMAPScriptServer: @unchecked Sendable {
     private let capabilities: [String]
     private let examineReadOnly: Bool
     private let loginSucceeds: Bool
+    private let loginFailureText: String
     private let rejectBodyFetch: Bool
     private let rejectDone: Bool
     private let silenceNoop: Bool
@@ -53,6 +54,7 @@ final class IMAPScriptServer: @unchecked Sendable {
         capabilities: [String] = ["IMAP4rev1", "IDLE"],
         examineReadOnly: Bool = true,
         loginSucceeds: Bool = true,
+        loginFailureText: String = "Invalid credentials",
         rejectBodyFetch: Bool = false,
         rejectDone: Bool = false,
         silenceNoop: Bool = false,
@@ -65,6 +67,7 @@ final class IMAPScriptServer: @unchecked Sendable {
         self.capabilities = capabilities
         self.examineReadOnly = examineReadOnly
         self.loginSucceeds = loginSucceeds
+        self.loginFailureText = loginFailureText
         self.rejectBodyFetch = rejectBodyFetch
         self.rejectDone = rejectDone
         self.silenceNoop = silenceNoop
@@ -341,7 +344,9 @@ final class IMAPScriptServer: @unchecked Sendable {
                 // send another CAPABILITY when this list is non-empty.
                 return Data("* CAPABILITY \(listed)\r\n\(tag) OK LOGIN completed\r\n".utf8)
             }
-            return Data("\(tag) NO [AUTHENTICATIONFAILED] Invalid credentials\r\n".utf8)
+            return Data("\(tag) NO [AUTHENTICATIONFAILED] \(loginFailureText)\r\n".utf8)
+        case "ID":
+            return Data("* ID NIL\r\n\(tag) OK ID completed\r\n".utf8)
         case "EXAMINE":
             selected = true
             return examineData(

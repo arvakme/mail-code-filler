@@ -1,0 +1,17 @@
+{
+  "subject": "Atlassian confirmation code",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your verification code: 641230",
+    "html": "<p>Your verification code: 641230</p>"
+  },
+  "expected": {
+    "codes": [
+      "641230"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

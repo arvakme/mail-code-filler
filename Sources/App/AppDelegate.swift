@@ -1,12 +1,15 @@
 import AppKit
+import MailCodeCore
 import Network
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     private let hotKey = HotKey()
-    private lazy var panel = PanelController(model: model)
-    private lazy var arrivalPanel = ArrivalPanelController(model: model)
+    private lazy var panel = PanelController(model: model, pageProvider: model.activePageProvider)
+    private lazy var arrivalPanel = ArrivalPanelController(
+        model: model, pageProvider: model.activePageProvider)
+    private var codeWaitMonitor: CodeWaitTriggerMonitor?
     private var wakeObserver: NSObjectProtocol?
     private var clockObserver: NSObjectProtocol?
     private var timeZoneObserver: NSObjectProtocol?
@@ -15,15 +18,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didLaunch = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Global shortcuts stay limited to the optional AutoFill build's chooser; the everyday
+        // flow is the arrival card stack plus click-to-fill.
         if model.supportsAutoFill {
             let registered = hotKey.register { [weak self] in self?.panel.show() }
-            model.shortcutStatus =
-                registered ? "⌃⌥Space · 选择并填入" : "⌃⌥Space 注册失败，仍可显式复制。"
+            model.shortcutStatus = registered ? "⌃⌥Space · 选择并填入" : "⌃⌥Space 注册失败，仍可显式复制。"
         }
+        model.onCodeWaitTriggerSettingsChanged = { [weak self] in
+            self?.configureCodeWaitMonitor()
+        }
+        configureCodeWaitMonitor()
         model.onScreenshotSettingChanged = { [weak self] allowed in
             guard let self else { return }
             arrivalPanel.updateScreenshotSharing(allowed)
-            if model.supportsAutoFill { panel.updateScreenshotSharing(allowed) }
+            panel.updateScreenshotSharing(allowed)
         }
         model.onArrival = { [weak self] notice in
             self?.arrivalPanel.show(notice)
@@ -89,8 +97,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clockObserver = nil
         timeZoneObserver = nil
         hotKey.invalidate()
-        if model.supportsAutoFill { panel.stop() }
+        codeWaitMonitor?.setEnabled(false)
+        codeWaitMonitor = nil
+        panel.stop()
         arrivalPanel.stop()
+    }
+
+    private func configureCodeWaitMonitor() {
+        codeWaitMonitor?.setEnabled(false)
+        codeWaitMonitor = CodeWaitTriggerMonitor(
+            controller: model.codeWaitController,
+            pageProvider: model.activePageProvider,
+            requireAuthPage: model.settings.otpFieldRequireAuthPage)
+        codeWaitMonitor?.setEnabled(model.settings.otpFieldAutoTriggerEnabled)
     }
 
     private func startNetworkPathMonitor() {

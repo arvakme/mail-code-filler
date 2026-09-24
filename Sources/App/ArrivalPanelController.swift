@@ -12,9 +12,12 @@ final class ArrivalPanelController {
     private var currentNotice: ArrivalNotice?
     private var host: NSHostingView<ArrivalView>?
     private var fillPossible = false
+    private let pageProvider: any ActivePageProviding
+    private let ranker = CurrentSiteCandidateRanker()
 
-    init(model: AppModel) {
+    init(model: AppModel, pageProvider: any ActivePageProviding = BrowserActivePageProvider()) {
         self.model = model
+        self.pageProvider = pageProvider
         panel = ArrivalCardPanel(
             contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
@@ -52,6 +55,7 @@ final class ArrivalPanelController {
         let hostingView = NSHostingView(
             rootView: ArrivalView(
                 model: model, notice: notice,
+                rankedCandidates: ranker.rank(notice.candidates, for: pageProvider.currentPage()),
                 fillPossible: fillPossible, close: { [weak self] in self?.close() },
                 drag: { [weak self] in self?.drag($0) }))
         hostingView.wantsLayer = true
@@ -76,7 +80,9 @@ final class ArrivalPanelController {
     private func updateVisibleStack() {
         guard let notice = currentNotice, let host else { return }
         host.rootView = ArrivalView(
-            model: model, notice: notice, fillPossible: fillPossible,
+            model: model, notice: notice,
+            rankedCandidates: ranker.rank(notice.candidates, for: pageProvider.currentPage()),
+            fillPossible: fillPossible,
             close: { [weak self] in self?.close() }, drag: { [weak self] in self?.drag($0) })
         let size = host.fittingSize
         host.frame = NSRect(origin: .zero, size: size)
@@ -246,6 +252,7 @@ private final class ArrivalCardPanel: NSPanel {
 private struct ArrivalView: View {
     let model: AppModel
     let notice: ArrivalNotice
+    let rankedCandidates: [RankedCandidate]
     let fillPossible: Bool
     let close: () -> Void
     let drag: (ArrivalDragPhase) -> Void
@@ -285,8 +292,10 @@ private struct ArrivalView: View {
                     .onEnded { _ in drag(.ended) }
             )
             .help("拖动以移开提示")
-            ForEach(notice.candidates.prefix(5)) { candidate in row(candidate) }
-                .transition(.move(edge: .top).combined(with: .opacity))
+            ForEach(rankedCandidates.prefix(5)) { ranked in
+                row(ranked.candidate, matchesCurrentSite: ranked.matchesCurrentSite)
+            }
+            .transition(.move(edge: .top).combined(with: .opacity))
             let overflow = max(0, notice.candidates.count - 5)
             if overflow > 0 {
                 Text("还有 \(overflow) 条 · 在菜单栏查看")
@@ -313,17 +322,18 @@ private struct ArrivalView: View {
         }
     }
 
-    private func row(_ candidate: Candidate) -> some View {
+    private func row(_ candidate: Candidate, matchesCurrentSite: Bool) -> some View {
         let cardAction = model.settings.actionForCodeCard(writableTargetAvailable: fillPossible)
         let sender = SenderIdentity(fromHeader: candidate.source)
         return ArrivalRow(
             candidate: candidate, sender: sender, action: cardAction,
-            secondary: secondaryText(for: candidate)
+            secondary: secondaryText(for: candidate), matchesCurrentSite: matchesCurrentSite
         ) {
             activate(candidate)
         }
         .accessibilityLabel(
             accessibilityLabel(for: candidate, sender: sender, link: candidate.loginLink, action: cardAction)
+                + (matchesCurrentSite ? "，匹配当前网站" : "")
         )
         .accessibilityHint(accessibilityHint(for: candidate, action: cardAction))
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -384,6 +394,7 @@ private struct ArrivalRow: View {
     let sender: SenderIdentity
     let action: CodeCardClickAction
     let secondary: String
+    let matchesCurrentSite: Bool
     let perform: () -> Void
     @State private var hovered = false
 
@@ -407,6 +418,11 @@ private struct ArrivalRow: View {
                         .foregroundStyle(secondaryStyle)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if matchesCurrentSite {
+                        Text("匹配当前网站")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(secondaryStyle)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 2) {

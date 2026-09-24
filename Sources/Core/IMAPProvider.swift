@@ -3,6 +3,8 @@ import Foundation
 public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
     case gmail
     case qqMail = "qq"
+    case icloudMail = "icloud"
+    case neteaseMail = "netease"
 
     public var descriptor: IMAPProviderDescriptor {
         switch self {
@@ -36,7 +38,64 @@ public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
                 allowsPollingFallback: true,
                 inboxName: "INBOX",
                 iconName: "envelope")
+        case .icloudMail:
+            IMAPProviderDescriptor(
+                provider: self, displayName: "iCloud 邮箱", host: "imap.mail.me.com", port: 993,
+                credentialLabel: "Apple App 专用密码", credentialPlaceholder: "App 专用密码",
+                credentialHelpText:
+                    "使用 iCloud 邮箱地址和 App 专用密码。先开启双重认证，再到 account.apple.com → 登录和安全 → App 专用密码生成；不要填写 Apple 账户密码。",
+                credentialHelpURL: URL(string: "https://support.apple.com/zh-cn/102654")!,
+                supportsIDLE: true, allowsPollingFallback: true, inboxName: "INBOX",
+                iconName: "envelope")
+        case .neteaseMail:
+            IMAPProviderDescriptor(
+                provider: self, displayName: "网易邮箱（163 / 126 / yeah.net）", host: "imap.163.com", port: 993,
+                credentialLabel: "客户端授权码", credentialPlaceholder: "客户端授权码",
+                credentialHelpText:
+                    "先登录网页版邮箱，在设置 → POP3/SMTP/IMAP 开启 IMAP；按提示完成验证并生成客户端授权码。填写完整邮箱地址和授权码，不是网页邮箱密码。",
+                credentialHelpURL: URL(
+                    string:
+                        "https://help.mail.yeah.net/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b"
+                )!,
+                supportsIDLE: true, allowsPollingFallback: true, inboxName: "INBOX",
+                iconName: "envelope")
         }
+    }
+
+    public func imapHost(for email: String) throws -> String {
+        let domain = try validatedDomain(email)
+        switch self {
+        case .gmail: return descriptor.host
+        case .qqMail: return descriptor.host
+        case .icloudMail:
+            guard ["icloud.com", "me.com", "mac.com"].contains(domain) else {
+                throw IMAPAccountError.unsupportedDomain
+            }
+            return descriptor.host
+        case .neteaseMail:
+            guard ["163.com", "126.com", "yeah.net"].contains(domain) else {
+                throw IMAPAccountError.unsupportedDomain
+            }
+            return "imap.\(domain)"
+        }
+    }
+
+    public func loginUsernames(for email: String) throws -> [String] {
+        _ = try imapHost(for: email)
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if self == .icloudMail, let local = address.split(separator: "@").first {
+            return [String(local), address]
+        }
+        return [address]
+    }
+
+    private func validatedDomain(_ email: String) throws -> String {
+        let parts = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            .split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else {
+            throw IMAPAccountError.invalidEmail
+        }
+        return String(parts[1])
     }
 
     /// Keep Gmail's historical account value stable for AutoFill rules and message IDs.
@@ -45,6 +104,8 @@ public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
         switch self {
         case .gmail: email
         case .qqMail: "qq:\(email)"
+        case .icloudMail: "icloud:\(email)"
+        case .neteaseMail: "netease:\(email)"
         }
     }
 }

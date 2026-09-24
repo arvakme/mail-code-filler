@@ -1,0 +1,14 @@
+{
+  "subject": "Amazon confirmation code",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>Your verification code: 641221</p></body></html>",
+  "expected": {
+    "codes": [
+      "641221"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}

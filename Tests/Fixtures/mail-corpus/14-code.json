@@ -1,0 +1,14 @@
+{
+  "subject": "招行登录验证码",
+  "from-domain": "example.test",
+  "mime": "text/html",
+  "body": "<html><body><p>招行 验证码：641213</p></body></html>",
+  "expected": {
+    "codes": [
+      "641213"
+    ],
+    "links": []
+  },
+  "notes": "Synthetic detector regression fixture; not a vendor template.",
+  "source": "synthetic"
+}
