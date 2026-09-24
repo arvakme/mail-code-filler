@@ -11,6 +11,10 @@ public struct CandidateArrivalTracker: Sendable {
 
     /// `launchGrace` lets mail that landed just before launch (e.g. while the app was being
     /// restarted) still produce a card; older backfill stays list-only.
+    /// Codes that arrive within this window of the newest one share a card; older unused
+    /// codes drop off the card (they stay in the menu bar list until they expire).
+    public static let burstWindow: TimeInterval = 120
+
     public init(startedAt: Date = Date(), launchGrace: TimeInterval = 0) {
         self.startedAt = startedAt.addingTimeInterval(-max(0, launchGrace))
     }
@@ -87,8 +91,11 @@ public struct CandidateArrivalTracker: Sendable {
             }
         }
 
-        let ordered = snapshot.values.filter { pending[$0.id] != nil }.sorted(by: Self.newerFirst)
         guard let newestArrival = newlyPrompted.sorted(by: Self.newerFirst).first else { return nil }
+        // The card is for a burst of codes, not a clipboard history: forget stale pending rows.
+        let burstStart = newestArrival.receivedAt.addingTimeInterval(-Self.burstWindow)
+        pending = pending.filter { snapshot[$0.key].map { $0.receivedAt >= burstStart } ?? false }
+        let ordered = snapshot.values.filter { pending[$0.id] != nil }.sorted(by: Self.newerFirst)
         let choicesFromNewestMessage = snapshot.values.filter {
             $0.id.message == newestArrival.id.message && $0.expiresAt > now
         }

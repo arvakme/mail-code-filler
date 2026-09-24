@@ -26,6 +26,16 @@ struct CandidateDeliveryTests {
         #expect(tracker.receive(new, now: now + 3) == nil)
     }
 
+    @Test func olderUnusedCodesDropOffTheCardOutsideTheBurstWindow() async {
+        var tracker = CandidateArrivalTracker(startedAt: now)
+        let first = await candidates(uid: 5, age: 1)
+        #expect(tracker.receive(first, now: now + 1)?.candidates == first)
+        let burst = await candidates(uid: 6, age: 60)
+        #expect(tracker.receive(burst + first, now: now + 60)?.candidates == burst + first)
+        let later = await candidates(uid: 7, age: 400)
+        #expect(tracker.receive(later + burst + first, now: now + 400)?.candidates == later)
+    }
+
     @Test func mailFromJustBeforeARestartStillGetsACard() async {
         var tracker = CandidateArrivalTracker(startedAt: now, launchGrace: 180)
         let restartGap = await candidates(uid: 3, age: -50)
