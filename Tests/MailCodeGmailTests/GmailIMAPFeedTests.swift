@@ -8,6 +8,69 @@ import Testing
 struct GmailIMAPFeedTests {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
+    @Test func outlookXOAUTH2RefreshesOnceAndRefetchesReadOnly() async throws {
+        let server = IMAPScriptServer(
+            username: "person@outlook.com", password: "fresh-access", uidValidity: 91,
+            messages: [
+                message(
+                    uid: 4, subject: "Outlook", body: Data("Your verification code is 654321".utf8),
+                    age: -10)
+            ],
+            capabilities: ["IMAP4rev1", "IDLE", "AUTH=XOAUTH2", "SASL-IR"])
+        try server.start()
+        defer { server.stop() }
+        let tokens = FakeMicrosoftTokens()
+        let login = try IMAPAccountCredentials.validated(
+            provider: .outlook, email: "person@outlook.com", secret: "")
+        let log = EventLog()
+        let feed = GmailIMAPFeed(
+            configuration: configuration(port: server.port, provider: .outlook),
+            microsoftTokens: tokens)
+        let task = Task { try await feed.run(login: login, onEvent: { log.add($0) }) }
+        defer { task.cancel() }
+        let mail = try await waitMail(log)
+        #expect(mail.id.account == "outlook:person@outlook.com")
+        #expect(mail.id.uid == 4)
+        #expect(server.matchedXOAUTH2Count >= 2)
+        #expect(await tokens.refreshCount == 1)
+        task.cancel()
+        try await waitCancelled(task)
+
+        let refetcher = GmailMissedMailFetcher(
+            host: "127.0.0.1", port: server.port, security: .plainText,
+            microsoftTokens: tokens)
+        let fetched = try await refetcher.fetchReadOnly(login: login, message: mail.id)
+        #expect(fetched.bodies.contains { $0.contains("654321") })
+        let commands = server.commandLog.joined(separator: "\n").uppercased()
+        #expect(commands.contains("AUTHENTICATE XOAUTH2"))
+        #expect(commands.contains("EXAMINE"))
+        #expect(commands.contains("BODY.PEEK"))
+        for forbidden in ["STORE", "COPY", "DELETE", "EXPUNGE", "APPEND", "SELECT"] {
+            #expect(!commands.contains(" \(forbidden)"))
+        }
+        #expect(!commands.contains("FRESH-ACCESS"))
+        #expect(!commands.contains("STALE-ACCESS"))
+        #expect(!commands.contains("PERSON@OUTLOOK.COM"))
+    }
+
+    @Test func revokedOutlookTokenStopsWithoutBackgroundRetries() async throws {
+        let server = IMAPScriptServer(
+            username: "person@outlook.com", password: "unused",
+            capabilities: ["IMAP4rev1", "AUTH=XOAUTH2", "SASL-IR"])
+        try server.start()
+        defer { server.stop() }
+        let feed = GmailIMAPFeed(
+            configuration: configuration(port: server.port, provider: .outlook),
+            microsoftTokens: RevokedMicrosoftTokens())
+        let login = try IMAPAccountCredentials.validated(
+            provider: .outlook, email: "person@outlook.com", secret: "")
+        await #expect(throws: MicrosoftOAuthError.needsReauthentication) {
+            try await feed.run(login: login, onEvent: { _ in })
+        }
+        #expect(server.acceptedConnectionCount == 1)
+        #expect(server.xoauthAttemptCount == 0)
+    }
+
     @Test func readsRecentPeekMailAndSkipsExpired() async throws {
         let freshBody = Data("verification code is 654321\n".utf8).base64EncodedData()
         let server = IMAPScriptServer(
@@ -962,6 +1025,25 @@ struct GmailIMAPFeedTests {
             task.cancel()
             Issue.record("cancellation did not finish the feed")
         }
+    }
+}
+
+private actor FakeMicrosoftTokens: MicrosoftAccessTokenProviding {
+    private(set) var refreshCount = 0
+
+    func accessToken(accountID: String, forceRefresh: Bool) async throws -> String {
+        #expect(accountID == "outlook:person@outlook.com")
+        if forceRefresh {
+            refreshCount += 1
+            return "fresh-access"
+        }
+        return refreshCount == 0 ? "stale-access" : "fresh-access"
+    }
+}
+
+private actor RevokedMicrosoftTokens: MicrosoftAccessTokenProviding {
+    func accessToken(accountID: String, forceRefresh: Bool) async throws -> String {
+        throw MicrosoftOAuthError.needsReauthentication
     }
 }
 

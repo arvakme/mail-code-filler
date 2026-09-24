@@ -24,11 +24,8 @@ targetTemplates:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.zhijie.MailCodeFiller
         PRODUCT_NAME: Mail Code Filler
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Mail Code Filler
-        INFOPLIST_KEY_LSUIElement: YES
-        INFOPLIST_KEY_NSAppleEventsUsageDescription: 仅在你允许后读取 Safari 或 Chrome 当前标签的网址，以优先显示匹配该网站的验证码。
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Config/Host-Info.plist
         COMBINE_HIDPI_IMAGES: YES
 targets:
   MailCodeFillerLocal:
@@ -47,7 +44,7 @@ targets:
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Config/Host.entitlements
-        INFOPLIST_KEY_MailCodeAutoFillAccessGroup: $(MAIL_CODE_AUTOFILL_GROUP)
+        INFOPLIST_FILE: Config/Host-AutoFill-Info.plist
   MailCodeAutoFillExtension:
     type: app-extension
     platform: macOS

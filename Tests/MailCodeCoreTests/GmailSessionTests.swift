@@ -248,6 +248,45 @@ struct GmailSessionTests {
         await fixture.session.pause()
     }
 
+    @Test func securityAlertLinkIsHiddenByDefaultAndPublishedWhenEnabled() async throws {
+        let store = MemoryGmailCredentials()
+        let feed = ControlledGmailFeed()
+        let vault = CandidateVault()
+        let account = IMAPAccount(provider: .gmail, email: "person@gmail.com")
+        let name = "MailCodeFiller.security-link.tests.\(UUID())"
+        let preferences = try #require(UserDefaults(suiteName: name))
+        defer { preferences.removePersistentDomain(forName: name) }
+        let settings = DeliverySettings(preferences: preferences)
+        let session = GmailSession(
+            account: account, vault: vault, feed: feed, credentials: store,
+            preferences: preferences, linkCardLevel: { settings.linkCardLevel })
+        var starts = feed.starts.makeAsyncIterator()
+        try session.connect(email: "person@gmail.com", appPassword: "abcdefghijklmnop")
+        _ = await starts.next()
+
+        func alert(uid: UInt32) -> ReceivedMail {
+            ReceivedMail(
+                id: .init(account: account.id, mailbox: "INBOX", uidValidity: 1, uid: uid),
+                subject: "Security alert",
+                bodies: ["New sign-in to your Google Account. Check activity."],
+                links: [
+                    MailLink(
+                        href:
+                            "https://myaccount.google.com/notifications?anexp=A8bC4dE6fG2hJ9kL3mN7pQ5r&authuser=0",
+                        text: "Check activity")
+                ], sender: "Google", receivedAt: Date())
+        }
+        await feed.emit(.message(alert(uid: 91)))
+        #expect(await vault.snapshot(now: Date()).isEmpty)
+
+        settings.linkCardLevel = .includingAccountNotices
+        await feed.emit(.message(alert(uid: 92)))
+        let candidates = await vault.snapshot(now: Date())
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.loginLink?.purpose == .accountNotice)
+        await session.pause()
+    }
+
     @Test(arguments: [false, true])
     func cancelledSemanticResponseCannotPublishAfterPauseOrDisable(disable: Bool) async throws {
         let fixture = try semanticFixture()
@@ -275,7 +314,7 @@ struct GmailSessionTests {
         try fixture.session.connect(email: "person@gmail.com", appPassword: "abcdefghijklmnop")
         _ = await starts.next()
         await fixture.feed.emit(.state(.listening))
-        let href = "https://login.example.test/continue?token=private-token"
+        let href = "https://login.example.test/continue?session=private-token"
         let mail = ReceivedMail(
             id: .init(account: "person@gmail.com", mailbox: "INBOX", uidValidity: 1, uid: 5),
             subject: "Example", bodies: ["Enter 483921 to finish signing in."],

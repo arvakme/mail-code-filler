@@ -1,8 +1,8 @@
 # Mail Code Filler
 
-Swift 原生 macOS 邮箱验证码菜单栏工具，支持 Gmail、QQ、iCloud 和网易邮箱（163 / 126 / yeah.net）。**收到新码自动提示；卡片默认只复制，也可在设置里选择尝试填入当前输入框**。多账户同时监听；明确的 HTTPS 登录链接须手动点击打开。设置和候选统一从菜单栏面板访问。辅助功能授权可选；默认构建不需要 AutoFill profile 或通知权限，不自动提交表单。
+Swift 原生 macOS 邮箱验证码菜单栏工具，支持 Gmail、QQ、iCloud、网易邮箱（163 / 126 / yeah.net）和 Outlook / Hotmail / Microsoft 365。**收到新码自动提示；卡片默认只复制，也可在设置里选择尝试填入当前输入框**。多账户同时监听；明确的 HTTPS 登录链接须手动点击打开。设置和候选统一从菜单栏面板访问。辅助功能授权可选；默认构建不需要 AutoFill profile 或通知权限，不自动提交表单。
 
-四种邮箱可以同时监听，Outlook/OAuth 尚未实现。真实新信、未读状态、各提供商实际账户与睡眠恢复仍需实机验收；离线试用不能代替真实收信。目标和后续路线见 [PLAN.md](PLAN.md)。
+这些邮箱可以同时监听。Outlook/OAuth 已实现，仍待真实 Microsoft 账户授权与收信验收。真实新信、未读状态、各提供商实际账户与睡眠恢复仍需实机验收；离线试用不能代替真实收信。目标和后续路线见 [PLAN.md](PLAN.md)。
 
 ## 构建与签名
 
@@ -33,6 +33,20 @@ Gmail 填写邮箱与 Google 生成的 **16 位应用专用密码**，支持分�
 QQ 邮箱连接 `imap.qq.com:993`。填写完整 QQ 邮箱地址和 QQ 邮箱设置中生成的**授权码**，不是 QQ 密码。一般在设置的账户或 POP3/IMAP/SMTP 服务区域启用 IMAP 并生成授权码；页面入口可能随版本调整。首次启动会将旧版 Gmail 凭据写到按账户隔离的新钥匙串项目并回读核验，然后才删除旧项目；如果旧项目删除失败，App 可继续启动并在下一次启动重试。Gmail 的账户身份仍等于原来存储的邮箱地址，所以网站规则和暂停设置不用改写。
 
 iCloud 使用 iCloud 邮箱地址与 Apple App 专用密码，网易邮箱先启用 IMAP 并填写完整邮箱地址和客户端授权码；均不要填网页登录密码。网易邮箱连接时会发送服务端要求的客户端标识。不同提供商的 IDLE 能力与补查间隔可能不同，状态以面板显示为准。
+
+### Outlook 邮箱
+
+Outlook / Hotmail / Live / MSN 和支持 IMAP 的 Microsoft 365 使用 Microsoft OAuth 公用客户端，不使用邮箱密码或 client secret。接入前按以下步骤配置自己的 Entra 应用：
+
+1. 在 Microsoft Entra 管理中心进入 **App registrations → New registration**，Supported account types 选择 **Accounts in any organizational directory and personal Microsoft accounts**（`AzureADandPersonalMicrosoftAccount`）。
+2. 在 **Authentication → Add a platform → Mobile and desktop applications** 注册精确回调 `msauth.dev.zhijie.MailCodeFiller://auth`；在 **Advanced settings** 打开 **Allow public client flows = Yes**。macOS App 的 Info.plist 已为两个宿主目标注册 `msauth.dev.zhijie.MailCodeFiller` URL scheme，供 `ASWebAuthenticationSession` 接收回调。
+3. 在 **API permissions → Add permission → APIs my organization uses → Office 365 Exchange Online → Delegated permissions** 只添加 `IMAP.AccessAsUser.All`。登录请求的 scope 为 `https://outlook.office.com/IMAP.AccessAsUser.All offline_access`；`offline_access` 是 OAuth scope，不是 Exchange API 权限。不要添加 client secret、Graph、`User.Read` 或 `Mail.Send`。
+4. 复制 **Application (client) ID**，将 `Config/Signing.example.xcconfig` 复制为 Git 忽略的 `Config/Signing.local.xcconfig`（如果已有则保留原文件），把 `MAIL_CODE_OUTLOOK_CLIENT_ID = YOUR_OUTLOOK_CLIENT_ID` 改为实际 Client ID，然后运行 `scripts/build.sh` 重新构建。Client ID 是公开标识，不是密码；缺失或留空时“添加邮箱”仍显示 Outlook 项与 README 提示，但禁止授权。
+5. 在 Outlook.com 的 **设置 → 邮件 → 转发和 IMAP** 启用 IMAP。Microsoft 365 租户也须允许 IMAP 与用户同意；组织策略可能要求管理员批准。然后在 App 选择 **Outlook / Hotmail / Microsoft 365**，填写完整邮箱地址，点击 **登录 Microsoft 并授权**。
+
+该授权允许 App 通过 IMAP 访问用户有权限的邮箱，权限范围大于验证码读取。App 实际只对 INBOX 执行只读 `EXAMINE` 和有界 `BODY.PEEK`，不会标记已读、修改、删除或发送邮件。IMAP 使用 `outlook.office365.com:993` TLS；access token 仅驻内存，refresh token 按账户单独存本机登录钥匙串，轮换时先保存新 token。令牌被撤销或失效会显示“需要重新登录”，仅在用户主动点击后重新打开授权。移除账户会删除本机令牌，但云端授权需在 Microsoft 账户授权页面或组织 My Apps / 管理员处另行撤销。
+
+真实 Outlook.com 和 Microsoft 365 授权、IDLE、静默刷新、暂停恢复及各租户 IMAP 策略尚待用户实机验证。建议发送合成验证码，检查 App 收到、原邮件未读状态不变，并重启测试静默刷新。
 
 - 登录凭据只存本机登录钥匙串；不与 AutoFill 扩展共享，不写明文配置、日志或 iCloud。访问失败明确报错，不降级到文件。
 - 只读 INBOX，不标记已读、移动、删除或发送邮件。IDLE 邮箱使用两条 TLS 连接分别监听变化和抓取，均使用 EXAMINE 与有界 BODY.PEEK，不下载附件。应用专用密码和 QQ 授权码本身的权限比本工具实际执行的读取操作更宽。
@@ -71,7 +85,7 @@ log show --predicate 'subsystem == "dev.zhijie.MailCodeFiller"'
 
 “允许截图和录屏看到验证码提示”默认关闭。关闭时到码卡片及可选 AutoFill 热键填入面板不出现在系统捕获画面；开启后系统截图、录屏或屏幕共享可能记录验证码。此设置只改变捕获可见性，不改变卡片内容。卡片自动关闭时间可设 **5–300 秒**，新时长用于下一次到码提示，退出后保留。“点击验证码卡片时”默认为“只复制”；也可选“填入当前输入框（需要辅助功能）”。选择的行为退出后保留，卡片按设置显示“复制”或“填入”。
 
-邮件有明确的“Sign in”“Log in”“magic link”“验证邮箱”等登录语义时，HTTPS 链接作为单独候选显示。卡片第一行显示“打开登录链接”和网站主机；待用列表行点击后才会把原链接交给系统默认浏览器，包括邮件服务的跟踪跳转地址；App 不解析跳转、不自动打开或复制链接。密码重置邮件默认不会识别成登录链接，只有明确的登录语义才会纳入。链接只在内存保留，最多 10 分钟，不会自动复制，也不会进入 AutoFill 验证码列表。
+邮件有明确的登录、邮箱验证、账号激活或账号安全提醒意图，且实际目标包含一次性凭据时，HTTPS 链接才作为候选。已知邮件追踪地址会在本地解析可恢复的目标用于判断；点击时仍把邮件中的原链接交给系统默认浏览器，不会自动打开或复制。普通网站首页、登录页和服务通知页脚不算一次性链接；密码重置邮件不纳入。设置「登录链接提示范围」默认「仅登录与验证」，显示登录、邮箱验证和账号激活链接；选择「包括账号安全提醒」后，新设备登录、异常活动等安全提醒也会进入卡片和待用列表。未选范围的链接不会入列。卡片按用途显示「打开登录链接」「打开验证链接」「打开激活链接」或「查看账号安全提醒」。链接只在内存保留，最多 10 分钟，不会进入 AutoFill 验证码列表。
 
 选择“只复制”时，点击卡片仅复制验证码。选择填入时，App 会重新核对当前前台 App、输入框、内容与选区，再尝试一次插入并回读确认；不会按 Return、提交表单或自动重试。需要辅助功能权限时，设置页会显示授权状态，并由你点击按钮打开“系统设置 → 隐私与安全性 → 辅助功能”自行授权。App 不会自动请求权限。没有授权、没有可写输入框或插入未获确认时，App 会复制验证码并在卡片上说明原因；之后可按 **⌘V** 粘贴。一次邮件包含多个候选时，每个码单独选择，不会自动挑选。登录链接始终按点击打开，不受验证码卡片设置影响。
 

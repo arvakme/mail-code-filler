@@ -26,6 +26,7 @@ public final class IMAPAccountSession {
     @ObservationIgnored private let feed: any IMAPFeed
     @ObservationIgnored private let credentials: any IMAPAccountCredentialStore
     @ObservationIgnored private let preferences: UserDefaults
+    @ObservationIgnored private let linkCardLevel: @MainActor () -> LinkCardLevel
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var semanticResolver: (any SemanticCodeResolver)?
@@ -36,13 +37,15 @@ public final class IMAPAccountSession {
     public init(
         account: IMAPAccount, vault: CandidateVault, feed: any IMAPFeed,
         credentials: any IMAPAccountCredentialStore = KeychainIMAPCredentialStore(),
-        preferences: UserDefaults = .standard
+        preferences: UserDefaults = .standard,
+        linkCardLevel: @escaping @MainActor () -> LinkCardLevel = { .signInAndVerification }
     ) {
         self.account = account
         self.vault = vault
         self.feed = feed
         self.credentials = credentials
         self.preferences = preferences
+        self.linkCardLevel = linkCardLevel
         message = "连接\(account.descriptor.displayName)后，自动接收最近 10 分钟的验证码。"
     }
 
@@ -249,13 +252,14 @@ public final class IMAPAccountSession {
         case .message(let mail):
             let started = ContinuousClock.now
             let codes = CodeDetector().codes(subject: mail.subject, bodies: mail.bodies)
-            let loginLink = SignInLinkDetector().detect(
+            let detectedLink = SignInLinkDetector().detect(
                 subject: mail.subject, bodies: mail.bodies, links: mail.links)
+            let loginLink = detectedLink.flatMap { linkCardLevel().allows($0.purpose) ? $0 : nil }
             if !codes.isEmpty || loginLink != nil {
                 await recentMissedMail?.remove(mail.id)
                 recordTiming(mail, since: started, source: "本地")
                 await publish(mail, codes: codes, loginLink: loginLink, generation: token)
-            } else {
+            } else if detectedLink == nil {
                 await recentMissedMail?.record(mail)
             }
             if codes.isEmpty {

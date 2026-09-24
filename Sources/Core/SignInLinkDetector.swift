@@ -5,12 +5,14 @@ public struct SignInLink: Equatable, Sendable {
         case signIn
         case activation
         case verification
+        case accountNotice
 
         public var actionLabel: String {
             switch self {
             case .signIn: return "打开登录链接"
             case .activation: return "打开激活链接"
             case .verification: return "打开验证链接"
+            case .accountNotice: return "查看账号安全提醒"
             }
         }
 
@@ -19,6 +21,7 @@ public struct SignInLink: Equatable, Sendable {
             case .signIn: return "登录链接"
             case .activation: return "激活链接"
             case .verification: return "验证链接"
+            case .accountNotice: return "账号安全提醒"
             }
         }
     }
@@ -54,7 +57,7 @@ public struct SignInLink: Equatable, Sendable {
     }
 }
 
-/// Finds one user-clickable sign-in URL without resolving tracking redirects or fetching it.
+/// Finds one user-clickable sign-in URL without fetching tracking redirects.
 public struct SignInLinkDetector: Sendable {
     private struct Reference {
         let href: String
@@ -81,8 +84,11 @@ public struct SignInLinkDetector: Sendable {
     private static let passwordResetPattern = compile(
         #"(?i)(?:password.{0,16}reset|reset.{0,16}password|forgot.{0,16}password|密码.{0,6}重置|重置.{0,6}密码|找回密码)"#
     )
+    private static let accountNoticePattern = compile(
+        #"(?i)\b(?:security\s+alert|new\s+(?:sign[\s-]*in|device)|unusual\s+sign[\s-]*in|suspicious\s+activity|check\s+activity|was\s+this\s+you|review\s+your\s+account|password\s+changed|(?:2fa|two[\s-]*factor(?:\s+authentication)?)\s+changed|new\s+ssh\s+key\s+added)\b|安全警告|异常登录|新设备登录|可疑活动|账号安全提醒|帳號安全提醒"#
+    )
     private static let actionPattern = compile(
-        #"(?i)\b(?:continue|proceed|open|verify|confirm|access|click\s+here|use\s+this\s+link)\b|继续|前往|打开|验证|確認|确认|进入"#
+        #"(?i)\b(?:continue|proceed|open|verify|confirm|access|check|review|click\s+here|use\s+this\s+link|was\s+this\s+you)\b|继续|前往|打开|验证|確認|确认|进入|查看活动"#
     )
     private static let excludedTextPattern = compile(
         #"(?i)\b(?:unsubscribe|manage\s+(?:email\s+)?preferences|privacy(?:\s+policy)?|help\s+center|support\s+center|documentation)\b|退订|取消订阅|隐私政策|隱私權|帮助中心|說明中心"#
@@ -91,6 +97,12 @@ public struct SignInLinkDetector: Sendable {
         #"(?i)(?:unsubscribe|opt[-_]?out|preferences?|privacy|help|support|docs|terms)"#
     )
     private static let tokenURLHint = compile(#"(?i)^(?:access[_-]?)?token$"#)
+    private static let oneTimeParameter = compile(
+        #"(?i)(?:^|[_-])(?:token|code|key|ticket|otp|activation(?:code)?|verification(?:code)?|magic|nonce|sig(?:nature)?|secret|one[_-]?time)(?:$|[_-])"#
+    )
+    private static let bodySignInIntent = compile(
+        #"(?i)\b(?:use|click|follow|open|tap|continue|finish|complete|enter)\b.{0,100}\b(?:sign(?:ing)?[\s-]*in|log[\s-]*in|magic[\s-]*link)\b|\b(?:sign[\s-]*in|log[\s-]*in)\b.{0,80}\b(?:with|using|via|through|by)\b.{0,24}\b(?:link|button|code)\b|\bsign[\s-]*in\b.{0,60}\b(?:to\s+(?:review|access|continue)|instead)\b"#
+    )
     private static let imageExtensionPattern = compile(#"(?i)\.(?:png|jpe?g|gif|svg|webp|bmp|ico|avif)$"#)
     private static let socialHosts: Set<String> = [
         "facebook.com", "instagram.com", "linkedin.com", "tiktok.com", "twitter.com",
@@ -103,7 +115,7 @@ public struct SignInLinkDetector: Sendable {
         let cleanBodies = bodies.map { MailCodeText.unquotedText(MailCodeText.normalize($0)) }
         let bodyText = cleanBodies.joined(separator: "\n")
         let subjectPurpose = Self.purpose(in: subject)
-        let bodyPurpose = Self.purpose(in: bodyText)
+        let bodyPurpose = Self.bodyPurpose(in: bodyText)
         let emailPurpose = subjectPurpose ?? bodyPurpose
         var references = links.map {
             Reference(href: $0.href, text: $0.text, context: $0.context)
@@ -123,18 +135,20 @@ public struct SignInLinkDetector: Sendable {
 
         let isPasswordReset = Self.matches(
             Self.passwordResetPattern, in: subject + "\n" + bodyText)
+        if isPasswordReset { return nil }
         var seen = Set<String>()
-        var eligible: [(reference: Reference, url: URL)] = []
+        var eligible: [(reference: Reference, url: URL, target: URL)] = []
         for reference in references {
             guard let url = Self.secureURL(reference.href),
-                !Self.isExcluded(url, text: reference.text + "\n" + reference.context),
+                let target = Self.judgmentTarget(for: url),
+                !Self.isExcluded(target, text: reference.text + "\n" + reference.context),
+                Self.hasOneTimeMaterial(target),
                 seen.insert(url.absoluteString).inserted
             else { continue }
-            eligible.append((reference, url))
+            eligible.append((reference, url, target))
         }
-        let hasSemanticTarget = eligible.contains { reference, url in
-            Self.purpose(in: reference.text + "\n" + reference.context) != nil
-                || Self.purpose(from: url) != nil
+        let hasSemanticTarget = eligible.contains { _, _, target in
+            Self.purpose(from: target) != nil
         }
         guard emailPurpose != nil || hasSemanticTarget else { return nil }
 
@@ -142,16 +156,14 @@ public struct SignInLinkDetector: Sendable {
         for (order, candidate) in eligible.enumerated() {
             let reference = candidate.reference
             let url = candidate.url
+            let target = candidate.target
             let referenceText = reference.text + "\n" + reference.context
             let referencePurpose = Self.purpose(in: referenceText)
-            let urlPurpose = Self.purpose(from: url)
+            let urlPurpose = Self.purpose(from: target)
             let action =
                 Self.matches(Self.actionPattern, in: reference.text)
                 || Self.matches(Self.actionPattern, in: reference.context)
-            let tokenHint = Self.hasTokenHint(url)
-
-            // A reset message only qualifies when this specific target explicitly says sign-in.
-            if isPasswordReset && !Self.matches(Self.loginPattern, in: referenceText) { continue }
+            let tokenHint = Self.hasTokenHint(target)
 
             let score: Int
             if referencePurpose != nil {
@@ -167,7 +179,9 @@ public struct SignInLinkDetector: Sendable {
             } else {
                 continue
             }
-            let purpose = referencePurpose ?? urlPurpose ?? emailPurpose ?? .signIn
+            let purpose =
+                emailPurpose == .accountNotice
+                ? .accountNotice : (referencePurpose ?? urlPurpose ?? emailPurpose ?? .signIn)
             ranked.append(
                 RankedLink(link: SignInLink(url: url, purpose: purpose), score: score, order: order))
         }
@@ -177,9 +191,18 @@ public struct SignInLinkDetector: Sendable {
     }
 
     private static func purpose(in text: String) -> SignInLink.Purpose? {
+        if matches(accountNoticePattern, in: text) { return .accountNotice }
         if matches(activationPattern, in: text) { return .activation }
         if matches(verificationPattern, in: text) { return .verification }
         if matches(loginPattern, in: text) { return .signIn }
+        return nil
+    }
+
+    private static func bodyPurpose(in text: String) -> SignInLink.Purpose? {
+        if matches(accountNoticePattern, in: text) { return .accountNotice }
+        if matches(activationPattern, in: text) { return .activation }
+        if matches(verificationPattern, in: text) { return .verification }
+        if matches(bodySignInIntent, in: text) { return .signIn }
         return nil
     }
 
@@ -194,12 +217,16 @@ public struct SignInLinkDetector: Sendable {
                 terms += value.lowercased().components(separatedBy: separators).filter { !$0.isEmpty }
             }
         }
-        if terms.contains(where: { ["activate", "activated", "activation", "activationcode"].contains($0) }) {
+        let accountTerms = ["account", "user", "registration"]
+        let emailTerms = ["email", "mailbox", "account"]
+        if terms.contains(where: { ["activate", "activated", "activation", "activationcode"].contains($0) })
+            && (terms.contains(where: accountTerms.contains) || terms.contains("activationcode"))
+        {
             return .activation
         }
         if terms.contains(where: {
-            ["verify", "verification", "confirm", "confirmation"].contains($0)
-        }) {
+            ["verify", "verification", "confirm", "confirmation", "verificationcode"].contains($0)
+        }) && (terms.contains(where: emailTerms.contains) || terms.contains("verificationcode")) {
             return .verification
         }
         return nil
@@ -213,6 +240,84 @@ public struct SignInLinkDetector: Sendable {
             $0.name.lowercased().components(separatedBy: separators)
         }
         return (pathTerms + queryTerms).contains("token")
+    }
+
+    private static func hasOneTimeMaterial(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        if (components.queryItems ?? []).contains(where: { item in
+            guard let value = item.value, !value.isEmpty else { return false }
+            if matches(oneTimeParameter, in: item.name) { return true }
+            let name = item.name.lowercased()
+            return !name.hasPrefix("utm_") && !["campaign", "source", "medium", "ref", "upn"].contains(name)
+                && isHighEntropySegment(value)
+        }) {
+            return true
+        }
+        return url.path.split(separator: "/").contains { isHighEntropySegment(String($0)) }
+    }
+
+    private static func isHighEntropySegment(_ raw: String) -> Bool {
+        let segment = raw.removingPercentEncoding ?? raw
+        guard segment.count >= 20, segment.count <= 512,
+            segment.unicodeScalars.allSatisfy({ CharacterSet.urlPathAllowed.contains($0) })
+        else { return false }
+        let letters = segment.filter(\.isLetter).count
+        let digits = segment.filter(\.isNumber).count
+        let unique = Set(segment).count
+        return letters >= 6 && digits >= 2 && unique >= 10
+    }
+
+    /// Known trackers are only evidence of the target they expose. Their own IDs,
+    /// signatures and opaque paths are never treated as sign-in credentials.
+    private static func judgmentTarget(for url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let host = components.host?.lowercased()
+        else { return nil }
+        let isSES = host == "awstrack.me" || host.hasSuffix(".awstrack.me")
+        let isTracker =
+            isSES
+            || host == "ct.sendgrid.net" || host.hasSuffix(".ct.sendgrid.net")
+            || host == "list-manage.com" || host.hasSuffix(".list-manage.com")
+            || host == "mailgun.org" || host.hasSuffix(".mailgun.org")
+            || host == "mailgun.net" || host.hasSuffix(".mailgun.net")
+            || host == "click.pstmrk.it"
+            || host == "hubspotlinks.com" || host.hasSuffix(".hubspotlinks.com")
+            || host == "hubspotemail.net" || host.hasSuffix(".hubspotemail.net")
+            || host == "braze.com" || host.hasSuffix(".braze.com")
+            || host == "braze.eu" || host.hasSuffix(".braze.eu")
+            || host == "customeriomail.com" || host.hasSuffix(".customeriomail.com")
+        guard isTracker else { return url }
+
+        let pathParts = components.percentEncodedPath.split(separator: "/")
+        if isSES, let marker = pathParts.first?.uppercased(),
+            ["L0", "CL0"].contains(marker), pathParts.count >= 2,
+            let decoded = String(pathParts[1]).removingPercentEncoding,
+            let target = secureURL(decoded)
+        {
+            return target
+        }
+        if isSES, pathParts.first?.uppercased() == "CL1", pathParts.count >= 3,
+            let decoded = String(pathParts[2]).removingPercentEncoding,
+            let target = secureURL(decoded)
+        {
+            return target
+        }
+        for item in components.queryItems ?? []
+        where
+            ["url", "target", "destination", "redirect", "redirect_url", "u"].contains(item.name.lowercased())
+        {
+            if let value = item.value, let target = secureURL(value) { return target }
+        }
+        for part in pathParts {
+            if let decoded = String(part).removingPercentEncoding,
+                let target = secureURL(decoded)
+            {
+                return target
+            }
+        }
+        return nil
     }
 
     private static func secureURL(_ raw: String) -> URL? {

@@ -5,6 +5,7 @@ public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
     case qqMail = "qq"
     case icloudMail = "icloud"
     case neteaseMail = "netease"
+    case outlook
 
     public var descriptor: IMAPProviderDescriptor {
         switch self {
@@ -59,6 +60,18 @@ public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
                 )!,
                 supportsIDLE: true, allowsPollingFallback: true, inboxName: "INBOX",
                 iconName: "envelope")
+        case .outlook:
+            IMAPProviderDescriptor(
+                provider: self, displayName: "Outlook / Hotmail / Microsoft 365",
+                host: "outlook.office365.com", port: 993,
+                credentialLabel: "Microsoft 授权", credentialPlaceholder: "无需输入密码",
+                credentialHelpText: "使用 Microsoft 登录授权，不输入邮箱密码。",
+                credentialHelpURL: URL(
+                    string:
+                        "https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com"
+                )!,
+                supportsIDLE: true, allowsPollingFallback: true, inboxName: "INBOX",
+                iconName: "envelope.badge.shield.half.filled")
         }
     }
 
@@ -66,6 +79,7 @@ public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
         let domain = try validatedDomain(email)
         switch self {
         case .gmail: return descriptor.host
+        case .outlook: return descriptor.host
         case .qqMail: return descriptor.host
         case .icloudMail:
             guard ["icloud.com", "me.com", "mac.com"].contains(domain) else {
@@ -106,6 +120,7 @@ public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
         case .qqMail: "qq:\(email)"
         case .icloudMail: "icloud:\(email)"
         case .neteaseMail: "netease:\(email)"
+        case .outlook: "outlook:\(email)"
         }
     }
 }

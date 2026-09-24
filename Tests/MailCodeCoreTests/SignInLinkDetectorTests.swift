@@ -94,8 +94,8 @@ struct SignInLinkDetectorTests {
                 ]) == nil)
     }
 
-    @Test func explicitSignInActionCanQualifyInsideAPasswordResetEmail() throws {
-        let candidate = try #require(
+    @Test func passwordResetMailCannotBecomeALinkCandidate() {
+        #expect(
             detector.detect(
                 subject: "Reset your password",
                 bodies: ["If you do not need a reset, sign in instead."],
@@ -103,8 +103,7 @@ struct SignInLinkDetectorTests {
                     MailLink(
                         href: "https://accounts.example.test/login/magic?token=secret",
                         text: "Sign in instead")
-                ]))
-        #expect(candidate.host == "accounts.example.test")
+                ]) == nil)
     }
 
     @Test func accountActivationAndEmailVerificationLinksCarryTheirPurpose() throws {
@@ -222,5 +221,93 @@ struct SignInLinkDetectorTests {
                         href: "https://second.example.test/login?token=two", text: "Sign in"),
                 ]))
         #expect(candidate.host == "first.example.test")
+    }
+
+    @Test func sesTrackingUsesRealTargetButKeepsTheClickableURL() throws {
+        let wrapped =
+            "https://abc.r.us-east-1.awstrack.me/L0/https%3A%2F%2Faccounts.example.test%2Flogin%2Fmagic%3Ftoken%3Dfixture-value/1/opaque-id/opaque-signature"
+        let candidate = try #require(
+            detector.detect(
+                subject: "Sign in to your account",
+                bodies: ["Use this link to sign in."],
+                links: [MailLink(href: wrapped, text: "Sign in")]))
+        #expect(candidate.url.absoluteString == wrapped)
+        #expect(candidate.host == "abc.r.us-east-1.awstrack.me")
+
+        let home =
+            "https://abc.r.us-east-1.awstrack.me/L0/https%3A%2F%2Fexample.test%2F/1/opaque-id/opaque-signature"
+        #expect(
+            detector.detect(
+                subject: "Sign in to your account", bodies: ["Use this link to sign in."],
+                links: [MailLink(href: home, text: "Sign in")]) == nil)
+    }
+
+    @Test func opaqueTrackerIDsNeverCountAsOneTimeMaterial() {
+        let wrappers = [
+            "https://u12345.ct.sendgrid.net/ls/click?upn=Opaque8hP4jK2mL9nQ7rS5tV",
+            "https://example.list-manage.com/track/click?u=Opaque8hP4jK2mL9nQ7rS5tV&id=123",
+            "https://track.mailgun.org/c/Opaque8hP4jK2mL9nQ7rS5tV",
+            "https://click.pstmrk.it/2s/example.test/Opaque8hP4jK2mL9nQ7rS5tV",
+            "https://links.hubspotlinks.com/e1t/c/Opaque8hP4jK2mL9nQ7rS5tV",
+            "https://links.braze.com/c/Opaque8hP4jK2mL9nQ7rS5tV",
+            "https://e.customeriomail.com/e/c/Opaque8hP4jK2mL9nQ7rS5tV",
+        ]
+        for wrapper in wrappers {
+            #expect(
+                detector.detect(
+                    subject: "Sign in to your account", bodies: ["Use this link to sign in."],
+                    links: [MailLink(href: wrapper, text: "Sign in")]) == nil)
+        }
+    }
+
+    @Test func cancellationFooterCannotSupplyMailIntentEvenWithAToken() {
+        #expect(
+            detector.detect(
+                subject: "Cancellation Request Confirmation",
+                bodies: [
+                    "We received your cancellation request. The service ends at the end of this billing period. Log in to your account."
+                ],
+                links: [
+                    MailLink(
+                        href: "https://example.test/login?token=fixture-value", text: "Log in to your account"
+                    )
+                ]) == nil)
+    }
+
+    @Test func orderConfirmationIsNotAccountVerification() {
+        #expect(
+            detector.detect(
+                subject: "Order confirmation", bodies: ["Confirm your order below."],
+                links: [
+                    MailLink(
+                        href: "https://shop.example.test/confirm/order?token=fixture-value",
+                        text: "Confirm order")
+                ]) == nil)
+    }
+
+    @Test func securityAlertsKeepTheirOwnPurpose() throws {
+        let alerts: [(subject: String, body: String, href: String, text: String)] = [
+            (
+                "Security alert", "New sign-in to your Google Account. Check activity.",
+                "https://myaccount.google.com/notifications?anexp=A8bC4dE6fG2hJ9kL3mN7pQ5r&authuser=0",
+                "Check activity"
+            ),
+            (
+                "Unusual sign-in activity", "We noticed unusual sign-in activity on your Microsoft account.",
+                "https://account.live.com/Activity?ticket=fixture-value", "Review activity"
+            ),
+            (
+                "New SSH key added", "A new SSH key was added to your GitHub account.",
+                "https://github.com/settings/ssh?token=fixture-value", "Review your account"
+            ),
+        ]
+        for alert in alerts {
+            let link = try #require(
+                detector.detect(
+                    subject: alert.subject, bodies: [alert.body],
+                    links: [MailLink(href: alert.href, text: alert.text)]))
+            #expect(link.purpose == .accountNotice)
+            #expect(link.purpose.actionLabel == "查看账号安全提醒")
+        }
     }
 }

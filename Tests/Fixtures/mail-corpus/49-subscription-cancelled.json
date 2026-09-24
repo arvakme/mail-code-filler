@@ -1,0 +1,15 @@
+{
+  "subject": "Subscription Cancelled",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your subscription has been cancelled. Access continues through the current billing period.",
+    "html": "<html><body><p>Your subscription has been cancelled. Access continues through the current billing period.</p><footer><p><a href=\"https://example.test/account\">Sign in to your account</a></p><p><a href=\"https://example.test/help\">Help center</a></p></footer></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic navigation-link negative fixture.",
+  "source": "synthetic"
+}

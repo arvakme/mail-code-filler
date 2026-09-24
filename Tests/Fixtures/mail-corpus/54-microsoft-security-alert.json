@@ -1,0 +1,20 @@
+{
+  "subject": "Unusual sign-in activity",
+  "from-domain": "accountprotection.microsoft.com",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "We noticed unusual sign-in activity on your Microsoft account. Review your account activity.",
+    "html": "<html><body><p>We noticed unusual sign-in activity on your Microsoft account. Review your account activity.</p><p><a href=\"https://account.live.com/Activity?ticket=fixture-value\">Review activity</a></p></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": [
+      {
+        "url": "https://account.live.com/Activity?ticket=fixture-value",
+        "purpose": "accountNotice"
+      }
+    ]
+  },
+  "notes": "Synthetic account security alert with no personal identifiers.",
+  "source": "synthetic"
+}

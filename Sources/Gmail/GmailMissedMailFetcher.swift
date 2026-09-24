@@ -8,19 +8,28 @@ public struct GmailMissedMailFetcher: IMAPMessageRefetching {
     private let port: Int
     private let security: MailTransportSecurity
     private let maxBodyBytes: Int
+    private let microsoftTokens: (any MicrosoftAccessTokenProviding)?
 
-    public init(maxBodyBytes: Int = 256 * 1024) {
+    public init(
+        maxBodyBytes: Int = 256 * 1024,
+        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil
+    ) {
         self.hostOverride = nil
         self.port = 993
         self.security = .implicitTLS
         self.maxBodyBytes = maxBodyBytes
+        self.microsoftTokens = microsoftTokens
     }
 
-    init(host: String, port: Int, security: MailTransportSecurity, maxBodyBytes: Int = 64 * 1024) {
+    init(
+        host: String, port: Int, security: MailTransportSecurity, maxBodyBytes: Int = 64 * 1024,
+        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil
+    ) {
         self.hostOverride = host
         self.port = port
         self.security = security
         self.maxBodyBytes = maxBodyBytes
+        self.microsoftTokens = microsoftTokens
     }
 
     public func fetchReadOnly(login: IMAPAccountCredentials, message: MailCodeCore.MessageID) async throws
@@ -45,13 +54,32 @@ public struct GmailMissedMailFetcher: IMAPMessageRefetching {
                     Identification(name: "Mail Code Filler", version: version))
             }
             try await server.connect()
-            let usernames = try valid.provider.loginUsernames(for: valid.email)
-            for (index, username) in usernames.enumerated() {
+            if valid.provider == .outlook {
+                guard let microsoftTokens else { throw MicrosoftOAuthError.missingClientID }
+                let token = try await microsoftTokens.accessToken(
+                    accountID: valid.accountID, forceRefresh: false)
                 do {
-                    try await server.login(username: username, password: valid.secret)
-                    break
+                    try await server.authenticateXOAUTH2(email: valid.email, accessToken: token)
                 } catch {
-                    guard index + 1 < usernames.count, Self.isAuthenticationError(error) else { throw error }
+                    guard Self.isAuthenticationError(error) else { throw error }
+                    let refreshed = try await microsoftTokens.accessToken(
+                        accountID: valid.accountID, forceRefresh: true)
+                    try await server.authenticateXOAUTH2(email: valid.email, accessToken: refreshed)
+                }
+                await server.setXOAUTH2AccessTokenProvider(email: valid.email) {
+                    try await microsoftTokens.accessToken(accountID: valid.accountID, forceRefresh: false)
+                }
+            } else {
+                let usernames = try valid.provider.loginUsernames(for: valid.email)
+                for (index, username) in usernames.enumerated() {
+                    do {
+                        try await server.login(username: username, password: valid.secret)
+                        break
+                    } catch {
+                        guard index + 1 < usernames.count, Self.isAuthenticationError(error) else {
+                            throw error
+                        }
+                    }
                 }
             }
             let selection = try await server.examineMailbox("INBOX")

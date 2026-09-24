@@ -1,0 +1,15 @@
+{
+  "subject": "Invoice Paid",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your invoice was paid. A receipt is available for your records.",
+    "html": "<html><body><p>Your invoice was paid. A receipt is available for your records.</p><footer><p><a href=\"https://billing.example.test/dashboard\">log in to your account</a></p><p><a href=\"https://billing.example.test/invoices/paid\">View invoice</a></p></footer></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic navigation-link negative fixture.",
+  "source": "synthetic"
+}

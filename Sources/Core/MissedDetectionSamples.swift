@@ -150,7 +150,7 @@ public enum MissedSampleValidator {
                 guard let url = URLComponents(string: link.url) else { return false }
                 return url.scheme == "https" && url.host == "example.invalid"
                     && url.query == nil && url.fragment == nil
-                    && ["signIn", "activation", "verification"].contains(link.purpose)
+                    && ["signIn", "activation", "verification", "accountNotice"].contains(link.purpose)
                     && sample.body.texts.contains(where: { $0.contains(link.url) })
             })
         else {

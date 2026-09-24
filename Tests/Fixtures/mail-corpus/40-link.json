@@ -2,12 +2,12 @@
   "subject": "Activate your account",
   "from-domain": "example.test",
   "mime": "text/html",
-  "body": "<html><body><p>Activate your account</p><a href=\"https://example.test/activate/apple\">Activate your account</a></body></html>",
+  "body": "<html><body><p>Activate your account</p><a href=\"https://example.test/activate/apple?token=fixture-value\">Activate your account</a></body></html>",
   "expected": {
     "codes": [],
     "links": [
       {
-        "url": "https://example.test/activate/apple",
+        "url": "https://example.test/activate/apple?token=fixture-value",
         "purpose": "activation"
       }
     ]

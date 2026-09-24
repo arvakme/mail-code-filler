@@ -10,6 +10,11 @@ struct DeliverySettingsTests {
         let preferences = try #require(UserDefaults(suiteName: name))
         defer { preferences.removePersistentDomain(forName: name) }
         let settings = DeliverySettings(preferences: preferences)
+        #expect(settings.linkCardLevel == .signInAndVerification)
+        #expect(settings.linkCardLevel.allows(.signIn))
+        #expect(settings.linkCardLevel.allows(.verification))
+        #expect(settings.linkCardLevel.allows(.activation))
+        #expect(!settings.linkCardLevel.allows(.accountNotice))
         #expect(settings.notificationSeconds == 30)
         #expect(!settings.automaticallyCopy)
         #expect(settings.cardPlacementMode == .followMouse)
@@ -34,6 +39,8 @@ struct DeliverySettingsTests {
         #expect(settings.notificationSeconds == 45)
         settings.automaticallyCopy = true
         settings.cardClickAction = .fill
+        settings.linkCardLevel = .includingAccountNotices
+        #expect(settings.linkCardLevel.allows(.accountNotice))
         settings.cardPlacementMode = .followInputCaret
         settings.rememberDraggedPosition = true
         settings.allowsScreenshots = true
@@ -55,6 +62,7 @@ struct DeliverySettingsTests {
         #expect(restored.notificationSeconds == 45)
         #expect(restored.automaticallyCopy)
         #expect(restored.cardClickAction == .fill)
+        #expect(restored.linkCardLevel == .includingAccountNotices)
         #expect(restored.cardPlacementMode == .followInputCaret)
         #expect(restored.rememberDraggedPosition)
         #expect(restored.allowsScreenshots)

@@ -17,16 +17,26 @@ struct IMAPAccountFormView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 Button("返回", action: onBack).keyboardShortcut(.cancelAction)
-                Label(existingAccount == nil ? "添加邮箱" : "更新邮箱凭据", systemImage: descriptor.iconName)
-                    .font(.title2.bold())
+                Label(
+                    provider == .outlook
+                        ? (existingAccount == nil ? "添加 Outlook 邮箱" : "重新登录 Microsoft")
+                        : (existingAccount == nil ? "添加邮箱" : "更新邮箱凭据"),
+                    systemImage: descriptor.iconName
+                )
+                .font(.title2.bold())
             }
             if existingAccount == nil {
                 Picker("邮箱类型", selection: $provider) {
                     ForEach(IMAPProvider.allCases, id: \.self) { item in
                         Text(item.descriptor.displayName).tag(item)
+                            .disabled(item == .outlook && !model.isOutlookConfigured)
                     }
                 }
                 .pickerStyle(.menu)
+            }
+            if !model.isOutlookConfigured {
+                Text("Outlook 需先按 README 填写 Client ID 并重新构建。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Text(existingAccount == nil ? "添加后与其他账户同时监听。" : existingAccount?.email ?? "")
                 .foregroundStyle(.secondary)
@@ -34,13 +44,26 @@ struct IMAPAccountFormView: View {
                 TextField("邮箱地址", text: $email)
                     .textContentType(.username)
                     .accessibilityIdentifier("imap-account-email")
-                SecureField(descriptor.credentialPlaceholder, text: $secret)
-                    .accessibilityIdentifier("imap-account-secret")
+                if provider != .outlook {
+                    SecureField(descriptor.credentialPlaceholder, text: $secret)
+                        .accessibilityIdentifier("imap-account-secret")
+                }
             }
             .textFieldStyle(.roundedBorder)
             Text(descriptor.credentialHelpText)
                 .font(.callout).foregroundStyle(.secondary)
-            Link("打开\(descriptor.displayName)设置说明", destination: descriptor.credentialHelpURL)
+            if provider == .outlook {
+                Text(
+                    "首次使用：在 Microsoft Entra 管理中心注册支持个人 Microsoft 账户的公用客户端，将 Client ID 写入本机 Config/Signing.local.xcconfig 的 MAIL_CODE_OUTLOOK_CLIENT_ID 并重新构建。Client ID 不是密码。"
+                )
+                .font(.callout).foregroundStyle(.secondary)
+                Text(
+                    "授权允许本 App 通过 IMAP 访问你有权限的邮箱，范围大于验证码读取。App 实际只对 INBOX 执行只读 EXAMINE/BODY.PEEK，在本机识别验证码，不标记已读、不修改、删除或发送邮件；登录令牌保存在本机钥匙串。"
+                )
+                .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Link("打开\(descriptor.displayName)设置说明", destination: descriptor.credentialHelpURL)
+            }
             Label("登录凭据只保存在本机登录钥匙串；不与 AutoFill 扩展共享。", systemImage: "lock.shield")
                 .font(.callout)
             Text("通过加密连接只读 INBOX，不改变邮件已读状态。连接后会检查最近 10 分钟邮件；退出 App 时停止监听。")
@@ -56,10 +79,14 @@ struct IMAPAccountFormView: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("保存并连接") { Task { await save() } }
-                    .buttonStyle(.glassProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(email.isEmpty || secret.isEmpty || isSaving)
+                Button(provider == .outlook ? "登录 Microsoft 并授权" : "保存并连接") {
+                    Task { await save() }
+                }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(
+                    email.isEmpty || (provider != .outlook && secret.isEmpty)
+                        || (provider == .outlook && !model.isOutlookConfigured) || isSaving)
             }
         }
         .padding(24)
@@ -75,7 +102,11 @@ struct IMAPAccountFormView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            try await model.connectAccount(provider: provider, email: email, secret: secret)
+            if provider == .outlook {
+                try await model.connectMicrosoftAccount(email: email)
+            } else {
+                try await model.connectAccount(provider: provider, email: email, secret: secret)
+            }
             secret = ""
             onBack()
         } catch {
@@ -99,7 +130,7 @@ struct IMAPAccountsView: View {
                     .controlSize(.small)
             }
             if model.accounts.isEmpty {
-                Text(model.accountSetupProblem ?? "尚未连接邮箱。添加 Gmail、QQ、iCloud 或网易邮箱后即可同时监听。")
+                Text(model.accountSetupProblem ?? "尚未连接邮箱。添加 Gmail、QQ、iCloud、网易或 Outlook 邮箱后即可同时监听。")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(model.accounts, id: \.account.id) { session in
@@ -144,7 +175,7 @@ private struct IMAPAccountRow: View {
                     } else {
                         Button("重新连接") { session.resume() }
                     }
-                    Button("更新凭据", action: update)
+                    Button(account.provider == .outlook ? "重新登录 Microsoft" : "更新凭据", action: update)
                     Divider()
                     Button("移除账户", role: .destructive) { confirmRemoval = true }
                 } label: {

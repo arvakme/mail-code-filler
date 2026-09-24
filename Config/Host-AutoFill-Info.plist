@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
+<key>CFBundleDisplayName</key><string>Mail Code Filler</string>
+<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>Microsoft OAuth callback</string>
+<key>CFBundleURLSchemes</key><array><string>msauth.dev.zhijie.MailCodeFiller</string></array>
+</dict></array>
+<key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+<key>LSUIElement</key><true/>
+<key>NSAppleEventsUsageDescription</key><string>仅在你允许后读取 Safari 或 Chrome 当前标签的网址，以优先显示匹配该网站的验证码。</string>
+<key>MailCodeOutlookClientID</key><string>$(MAIL_CODE_OUTLOOK_CLIENT_ID)</string>
+<key>MailCodeAutoFillAccessGroup</key><string>$(MAIL_CODE_AUTOFILL_GROUP)</string>
+</dict></plist>

@@ -1,0 +1,15 @@
+{
+  "subject": "Support Ticket Reply",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Our support team has replied to your ticket. Your request remains open.",
+    "html": "<html><body><p>Our support team has replied to your ticket. Your request remains open.</p><footer><p><a href=\"https://example.test/submitticket.php\">Sign in to see the reply</a></p><p><a href=\"https://example.test/support\">Get support</a></p></footer></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic navigation-link negative fixture.",
+  "source": "synthetic"
+}

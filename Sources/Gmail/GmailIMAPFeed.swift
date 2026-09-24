@@ -10,17 +10,26 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
     private static let logger = Logger(subsystem: "dev.zhijie.MailCodeFiller", category: "imap")
     private let configuration: IMAPFeedConfiguration
     private let codeWaitSignal: (any CodeWaitSignal)?
+    private let microsoftTokens: (any MicrosoftAccessTokenProviding)?
     private let active = Mutex<IMAPServer?>(nil)
 
     public convenience init() {
         self.init(provider: .gmail)
     }
 
-    public convenience init(provider: IMAPProvider, codeWaitSignal: (any CodeWaitSignal)? = nil) {
-        self.init(configuration: .production(provider), codeWaitSignal: codeWaitSignal)
+    public convenience init(
+        provider: IMAPProvider, codeWaitSignal: (any CodeWaitSignal)? = nil,
+        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil
+    ) {
+        self.init(
+            configuration: .production(provider), codeWaitSignal: codeWaitSignal,
+            microsoftTokens: microsoftTokens)
     }
 
-    init(configuration: IMAPFeedConfiguration, codeWaitSignal: (any CodeWaitSignal)? = nil) {
+    init(
+        configuration: IMAPFeedConfiguration, codeWaitSignal: (any CodeWaitSignal)? = nil,
+        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil
+    ) {
         GmailMailLogging.install()
         precondition(!configuration.backoff.isEmpty)
         precondition(configuration.catchupLimit > 0)
@@ -29,6 +38,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         precondition(configuration.pollInterval > .zero)
         self.configuration = configuration
         self.codeWaitSignal = codeWaitSignal
+        self.microsoftTokens = microsoftTokens
     }
 
     public func run(
@@ -71,7 +81,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
             } catch {
                 let mapped = Self.map(error, provider: configuration.provider.provider)
                 Self.logFailure(mapped, provider: configuration.provider.provider)
-                if mapped is CancellationError || mapped is GmailIMAPError {
+                if mapped is CancellationError || mapped is GmailIMAPError || mapped is MicrosoftOAuthError {
                     throw mapped
                 }
                 attempt.failures += 1
@@ -107,14 +117,32 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                     Identification(name: "Mail Code Filler", version: version))
             }
             try await server.connect()
-            let usernames = try credentials.provider.loginUsernames(for: credentials.email)
-            for (index, username) in usernames.enumerated() {
+            if credentials.provider == .outlook {
+                guard let microsoftTokens else { throw MicrosoftOAuthError.missingClientID }
+                let token = try await microsoftTokens.accessToken(
+                    accountID: credentials.accountID, forceRefresh: false)
                 do {
-                    try await server.login(username: username, password: credentials.appPassword)
-                    break
+                    try await server.authenticateXOAUTH2(email: credentials.email, accessToken: token)
                 } catch {
-                    guard index + 1 < usernames.count, Self.isAuthenticationError(error) else {
-                        throw error
+                    guard Self.isAuthenticationError(error) else { throw error }
+                    let refreshed = try await microsoftTokens.accessToken(
+                        accountID: credentials.accountID, forceRefresh: true)
+                    try await server.authenticateXOAUTH2(email: credentials.email, accessToken: refreshed)
+                }
+                await server.setXOAUTH2AccessTokenProvider(email: credentials.email) {
+                    try await microsoftTokens.accessToken(
+                        accountID: credentials.accountID, forceRefresh: false)
+                }
+            } else {
+                let usernames = try credentials.provider.loginUsernames(for: credentials.email)
+                for (index, username) in usernames.enumerated() {
+                    do {
+                        try await server.login(username: username, password: credentials.appPassword)
+                        break
+                    } catch {
+                        guard index + 1 < usernames.count, Self.isAuthenticationError(error) else {
+                            throw error
+                        }
                     }
                 }
             }
@@ -560,7 +588,9 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
     }
 
     private static func map(_ error: Error, provider: IMAPProvider) -> Error {
-        if error is CancellationError || error is GmailIMAPError || error is GmailTransportError {
+        if error is CancellationError || error is GmailIMAPError || error is GmailTransportError
+            || error is MicrosoftOAuthError
+        {
             return error
         }
         guard let imap = error as? IMAPError else { return GmailTransportError() }

@@ -92,6 +92,14 @@ struct DeliverySettingsView: View {
                 }
                 Text("默认只复制。登录链接始终按点击打开，不受此设置影响。")
                     .font(.caption).foregroundStyle(.secondary)
+                Picker("登录链接提示范围", selection: $settings.linkCardLevel) {
+                    Text("仅登录与验证").tag(LinkCardLevel.signInAndVerification)
+                    Text("包括账号安全提醒").tag(LinkCardLevel.includingAccountNotices)
+                }
+                .pickerStyle(.radioGroup)
+                .accessibilityIdentifier("link-card-level")
+                Text("默认只显示登录、邮箱验证和账号激活链接。开启账号安全提醒后，新设备登录等提醒也会进入提示和待用列表。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             VStack(alignment: .leading, spacing: 10) {

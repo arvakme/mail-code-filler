@@ -28,6 +28,8 @@ final class IMAPScriptServer: @unchecked Sendable {
     private var commandLogStorage: [String] = []
     private var acceptedStorage = 0
     private var loginMatches = 0
+    private var xoauthMatches = 0
+    private var xoauthAttempts = 0
     private var logWaiters: [SignalGate] = []
 
     private var uidValidity: UInt32
@@ -41,6 +43,7 @@ final class IMAPScriptServer: @unchecked Sendable {
     private let silenceNoop: Bool
     /// LOGIN OK carries the pre-auth capability code and omits IDLE.
     private let loginOmitsIdle: Bool
+    private let rejectFirstXOAUTH2: Bool
     let username: String
     let password: String
 
@@ -58,7 +61,8 @@ final class IMAPScriptServer: @unchecked Sendable {
         rejectBodyFetch: Bool = false,
         rejectDone: Bool = false,
         silenceNoop: Bool = false,
-        loginOmitsIdle: Bool = false
+        loginOmitsIdle: Bool = false,
+        rejectFirstXOAUTH2: Bool = false
     ) {
         self.username = username
         self.password = password
@@ -72,6 +76,7 @@ final class IMAPScriptServer: @unchecked Sendable {
         self.rejectDone = rejectDone
         self.silenceNoop = silenceNoop
         self.loginOmitsIdle = loginOmitsIdle
+        self.rejectFirstXOAUTH2 = rejectFirstXOAUTH2
     }
 
     func start() throws {
@@ -80,6 +85,8 @@ final class IMAPScriptServer: @unchecked Sendable {
         commandLogStorage.removeAll()
         acceptedStorage = 0
         loginMatches = 0
+        xoauthMatches = 0
+        xoauthAttempts = 0
         lock.unlock()
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -217,6 +224,9 @@ final class IMAPScriptServer: @unchecked Sendable {
         return loginMatches
     }
 
+    var matchedXOAUTH2Count: Int { lock.withLock { xoauthMatches } }
+    var xoauthAttemptCount: Int { lock.withLock { xoauthAttempts } }
+
     private func acceptClient(listener: Int32) {
         var clientAddr = sockaddr_in()
         var addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
@@ -256,6 +266,7 @@ final class IMAPScriptServer: @unchecked Sendable {
         var selected = false
         var selectedMessageCount = 0
         var idleTag: String?
+        var xoauthTag: String?
         let scratch = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
         defer { scratch.deallocate() }
         while true {
@@ -266,6 +277,12 @@ final class IMAPScriptServer: @unchecked Sendable {
                 let lineData = buffer[..<range.lowerBound]
                 buffer.removeSubrange(..<range.upperBound)
                 guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                if let pendingTag = xoauthTag {
+                    record("<XOAUTH2 response redacted>")
+                    writeAll(fd, xoauthReply(tag: pendingTag, encoded: line, authenticated: &authenticated))
+                    xoauthTag = nil
+                    continue
+                }
                 if let tag = idleTag, line.uppercased() == "DONE" {
                     record("DONE")
                     lock.lock()
@@ -290,8 +307,24 @@ final class IMAPScriptServer: @unchecked Sendable {
                 let args = parts.count > 2 ? parts[2] : ""
                 if verb == "LOGIN" {
                     record("\(tag) LOGIN <redacted>")
+                } else if verb == "AUTHENTICATE" {
+                    record("\(tag) AUTHENTICATE XOAUTH2 <redacted>")
                 } else {
                     record(line)
+                }
+                if verb == "AUTHENTICATE" {
+                    let auth = args.split(separator: " ", maxSplits: 1).map(String.init)
+                    guard auth.first?.uppercased() == "XOAUTH2" else {
+                        writeAll(fd, Data("\(tag) NO Unsupported auth\r\n".utf8))
+                        continue
+                    }
+                    if auth.count == 2 {
+                        writeAll(fd, xoauthReply(tag: tag, encoded: auth[1], authenticated: &authenticated))
+                    } else {
+                        xoauthTag = tag
+                        writeAll(fd, Data("+ \r\n".utf8))
+                    }
+                    continue
                 }
                 if verb == "IDLE" {
                     lock.lock()
@@ -309,6 +342,27 @@ final class IMAPScriptServer: @unchecked Sendable {
                 if verb == "LOGOUT" { return }
             }
         }
+    }
+
+    private func xoauthReply(tag: String, encoded: String, authenticated: inout Bool) -> Data {
+        let decoded = Data(base64Encoded: encoded).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let fields = decoded.split(separator: "\u{1}").map(String.init)
+        lock.lock()
+        xoauthAttempts += 1
+        let rejected = rejectFirstXOAUTH2 && xoauthAttempts == 1
+        let ok =
+            !rejected && loginSucceeds && fields.contains("user=\(username)")
+            && fields.contains("auth=Bearer \(password)")
+        if ok { xoauthMatches += 1 }
+        let advertised = capabilities
+        lock.unlock()
+        if ok {
+            authenticated = true
+            return Data(
+                "* CAPABILITY \(advertised.joined(separator: " "))\r\n\(tag) OK AUTHENTICATE completed\r\n"
+                    .utf8)
+        }
+        return Data("\(tag) NO [AUTHENTICATIONFAILED] Invalid token\r\n".utf8)
     }
 
     private func reply(

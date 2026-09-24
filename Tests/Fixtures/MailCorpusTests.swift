@@ -75,6 +75,7 @@ struct MailCorpusTests {
                 case .signIn: purpose = "signIn"
                 case .activation: purpose = "activation"
                 case .verification: purpose = "verification"
+                case .accountNotice: purpose = "accountNotice"
                 case nil: purpose = nil
                 }
                 #expect(purpose == expected.purpose, "\(url.lastPathComponent)")

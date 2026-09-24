@@ -1,12 +1,24 @@
 import Foundation
 import Observation
 
+public enum LinkCardLevel: String, CaseIterable, Sendable {
+    case signInAndVerification
+    case includingAccountNotices
+
+    public func allows(_ purpose: SignInLink.Purpose) -> Bool {
+        purpose != .accountNotice || self == .includingAccountNotices
+    }
+}
+
 @MainActor @Observable
 public final class DeliverySettings {
     public static let notificationRange = 5...300
     private let preferences: UserDefaults
     public var cardClickAction: CodeCardClickAction {
         didSet { preferences.set(cardClickAction.rawValue, forKey: "code-card-click-action") }
+    }
+    public var linkCardLevel: LinkCardLevel {
+        didSet { preferences.set(linkCardLevel.rawValue, forKey: "link-card-level") }
     }
     public var automaticallyCopy: Bool {
         didSet { preferences.set(automaticallyCopy, forKey: "automatically-copy-code") }
@@ -76,6 +88,9 @@ public final class DeliverySettings {
         cardClickAction =
             CodeCardClickAction(
                 rawValue: preferences.string(forKey: "code-card-click-action") ?? "copy") ?? .copy
+        linkCardLevel =
+            LinkCardLevel(rawValue: preferences.string(forKey: "link-card-level") ?? "")
+            ?? .signInAndVerification
         automaticallyCopy = preferences.bool(forKey: "automatically-copy-code")
         cardPlacementMode =
             CardPlacementMode(

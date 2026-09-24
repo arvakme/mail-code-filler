@@ -66,6 +66,8 @@ final class AppModel {
     @ObservationIgnored private let accountRegistry: IMAPAccountRegistry
     @ObservationIgnored private let credentials: KeychainIMAPCredentialStore
     @ObservationIgnored private let legacyGmailCredentials: KeychainGmailCredentialStore
+    @ObservationIgnored private let microsoftOAuthCoordinator = MicrosoftOAuthCoordinator()
+    @ObservationIgnored private let microsoftTokenManager: MicrosoftOAuthTokenManager?
     private var arrivals = CandidateArrivalTracker(launchGrace: 180)
     var shortcutStatus = "快捷键尚未注册"
     var targetName: String?
@@ -85,6 +87,13 @@ final class AppModel {
         accountRegistry = IMAPAccountRegistry(preferences: preferences)
         credentials = KeychainIMAPCredentialStore()
         legacyGmailCredentials = KeychainGmailCredentialStore()
+        if let clientID = MicrosoftOAuth.clientID() {
+            microsoftTokenManager = MicrosoftOAuthTokenManager(
+                client: MicrosoftOAuthTokenClient(clientID: clientID),
+                store: KeychainMicrosoftRefreshTokenStore())
+        } else {
+            microsoftTokenManager = nil
+        }
         settings = DeliverySettings(preferences: preferences)
         isDoNotDisturbActive = settings.doNotDisturbPeriod?.isActive(at: Date()) ?? false
         if let period = settings.doNotDisturbPeriod { arrivals.recordQuietPeriod(period) }
@@ -158,6 +167,14 @@ final class AppModel {
         guard let session = accounts.first(where: { $0.account.id == accountID }) else { return }
         // Preserve the existing session and credentials if explicit rule cleanup fails.
         try autoFill?.removeRules(account: accountID)
+        if session.account.provider == .outlook {
+            if let microsoftTokenManager {
+                try await microsoftTokenManager.remove(accountID: accountID)
+            } else {
+                // Accounts remain removable even if a later build has no Client ID.
+                try KeychainMicrosoftRefreshTokenStore().remove(accountID: accountID)
+            }
+        }
         try await session.removeAccount()
         accounts.removeAll { $0.account.id == accountID }
         accountRecords.removeAll { $0.id == accountID }
@@ -205,12 +222,29 @@ final class AppModel {
         status = "已保存到本机钥匙串。连接状态按账户分别显示；收到新验证码时会自动提示。"
     }
 
+    var isOutlookConfigured: Bool { microsoftTokenManager != nil }
+
+    func connectMicrosoftAccount(email: String) async throws {
+        guard !isOfflinePreview, let clientID = MicrosoftOAuth.clientID(),
+            let microsoftTokenManager
+        else { throw MicrosoftOAuthError.missingClientID }
+        let validated = try IMAPAccountCredentials.validated(provider: .outlook, email: email, secret: "")
+        let client = MicrosoftOAuthTokenClient(clientID: clientID)
+        let authorization = try await microsoftOAuthCoordinator.authorize(client: client)
+        try await microsoftTokenManager.authorize(
+            code: authorization.code, verifier: authorization.verifier,
+            accountID: validated.accountID)
+        try await connectAccount(provider: .outlook, email: validated.email, secret: "")
+    }
+
     var hasConfiguredAccounts: Bool { !accountRecords.isEmpty }
     var receivingMailboxesVisible: Bool { accountRecords.count > 1 }
     var recognitionNotice: String? { accounts.compactMap(\.recognitionNotice).first }
     var lastProcessingSummary: String? { accounts.compactMap(\.lastProcessingSummary).first }
     var emptyCandidateDescription: String {
-        guard !accountRecords.isEmpty else { return "连接 Gmail、QQ、iCloud 或网易邮箱，或先离线试用。\n新码自动提示，复制后手动粘贴。" }
+        guard !accountRecords.isEmpty else {
+            return "连接 Gmail、QQ、iCloud、网易或 Outlook 邮箱，或先离线试用。\n新码自动提示，复制后手动粘贴。"
+        }
         if accounts.contains(where: { $0.phase == .failed }) {
             return "至少一个邮箱连接需要处理。\n请查看上方各账户状态。"
         }
@@ -240,8 +274,11 @@ final class AppModel {
     private func makeSession(for account: IMAPAccount) -> IMAPAccountSession {
         let session = IMAPAccountSession(
             account: account, vault: vault,
-            feed: IMAPAccountFeed(provider: account.provider, codeWaitSignal: codeWaitController),
-            credentials: credentials, preferences: preferences)
+            feed: IMAPAccountFeed(
+                provider: account.provider, codeWaitSignal: codeWaitController,
+                microsoftTokens: microsoftTokenManager),
+            credentials: credentials, preferences: preferences,
+            linkCardLevel: { [weak self] in self?.settings.linkCardLevel ?? .signInAndVerification })
         session.recentMissedMail = recentMissedMail
         session.onCandidatesChanged = { [weak self] in await self?.refresh() }
         if settings.jevEnabled, let key = try? JevCredentialStore().load() {
@@ -541,7 +578,8 @@ final class AppModel {
         else {
             throw IMAPMessageRefetchError.accountMismatch
         }
-        return try await GmailMissedMailFetcher().fetchReadOnly(login: login, message: entry.id)
+        return try await GmailMissedMailFetcher(microsoftTokens: microsoftTokenManager)
+            .fetchReadOnly(login: login, message: entry.id)
     }
 
     private func consumeCandidateAfterSuccessfulAction(_ id: Candidate.ID, now: Date) async {

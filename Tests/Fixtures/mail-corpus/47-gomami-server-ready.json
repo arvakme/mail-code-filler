@@ -1,0 +1,15 @@
+{
+  "subject": "Your Server is Ready!",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Welcome. Your example server is ready. You can manage services in your account. - GoMami Networks Support Team",
+    "html": "<html><body><p>Welcome. Your example server is ready. You can manage services in your account. - GoMami Networks Support Team</p><footer><p><a href=\"https://a1b2c3.r.us-east-1.awstrack.me/L0/https%3A%2F%2Fexample.test/1/OpaquE8hP4jK2mL9nQ7rS5tV/OpaquE7nM4pR2sT9uW6xY3zA\">visit our website</a></p><p><a href=\"https://a1b2c3.r.us-east-1.awstrack.me/L0/https%3A%2F%2Fexample.test%2F/2/OpaquE8hP4jK2mL9nQ7rS5tV/OpaquE7nM4pR2sT9uW6xY3zA\">log in to your account</a></p><p><a href=\"https://a1b2c3.r.us-east-1.awstrack.me/L0/https%3A%2F%2Fexample.test%2Fsubmitticket.php/3/OpaquE8hP4jK2mL9nQ7rS5tV/OpaquE7nM4pR2sT9uW6xY3zA\">get support</a></p></footer></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Redacted shape of GoMami server-ready notification and its shared footer.",
+  "source": "redacted-real"
+}

@@ -82,6 +82,8 @@ extension IMAPAccountCredentials {
                     (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
                 })
             else { throw IMAPAccountError.invalidNetEaseAuthorizationCode }
+        case .outlook:
+            guard compactSecret.isEmpty else { throw IMAPAccountError.credentialMismatch }
         }
         return IMAPAccountCredentials(provider: provider, email: address, secret: compactSecret)
     }

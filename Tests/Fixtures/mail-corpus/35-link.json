@@ -2,12 +2,12 @@
   "subject": "Verify your email",
   "from-domain": "example.test",
   "mime": "text/html",
-  "body": "<html><body><p>Verify your email</p><a href=\"https://example.test/verify/meta\">Verify your email</a></body></html>",
+  "body": "<html><body><p>Verify your email</p><a href=\"https://example.test/verify/meta?token=fixture-value\">Verify your email</a></body></html>",
   "expected": {
     "codes": [],
     "links": [
       {
-        "url": "https://example.test/verify/meta",
+        "url": "https://example.test/verify/meta?token=fixture-value",
         "purpose": "verification"
       }
     ]

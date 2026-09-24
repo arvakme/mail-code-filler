@@ -1,0 +1,20 @@
+{
+  "subject": "New SSH key added",
+  "from-domain": "github.com",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "A new SSH key was added to your GitHub account. If this was not you, review your account.",
+    "html": "<html><body><p>A new SSH key was added to your GitHub account. If this was not you, review your account.</p><p><a href=\"https://github.com/settings/ssh?token=fixture-value\">Review your account</a></p></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": [
+      {
+        "url": "https://github.com/settings/ssh?token=fixture-value",
+        "purpose": "accountNotice"
+      }
+    ]
+  },
+  "notes": "Synthetic account security alert with no personal identifiers.",
+  "source": "synthetic"
+}

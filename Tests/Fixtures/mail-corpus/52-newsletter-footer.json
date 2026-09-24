@@ -1,0 +1,15 @@
+{
+  "subject": "Weekly Newsletter",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "This week: new features and community stories.",
+    "html": "<html><body><p>This week: new features and community stories.</p><footer><p><a href=\"https://news.example.test/story\">Read more</a></p><p><a href=\"https://example.test/login\">Sign in</a></p><p><a href=\"https://example.test/unsubscribe\">Unsubscribe</a></p></footer></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic navigation-link negative fixture.",
+  "source": "synthetic"
+}

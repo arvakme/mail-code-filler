@@ -1,0 +1,20 @@
+{
+  "subject": "Security alert",
+  "from-domain": "accounts.google.com",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "New sign-in to your Google Account. Check activity to review the device.",
+    "html": "<html><body><p>New sign-in to your Google Account. Check activity to review the device.</p><p><a href=\"https://myaccount.google.com/notifications?anexp=A8bC4dE6fG2hJ9kL3mN7pQ5r&authuser=0\">Check activity</a></p></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": [
+      {
+        "url": "https://myaccount.google.com/notifications?anexp=A8bC4dE6fG2hJ9kL3mN7pQ5r&authuser=0",
+        "purpose": "accountNotice"
+      }
+    ]
+  },
+  "notes": "Synthetic account security alert with no personal identifiers.",
+  "source": "synthetic"
+}

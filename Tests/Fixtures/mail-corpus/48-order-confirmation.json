@@ -1,0 +1,15 @@
+{
+  "subject": "Order Confirmation",
+  "from-domain": "example.test",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your order for the example item has been received. We will send shipping details shortly.",
+    "html": "<html><body><p>Your order for the example item has been received. We will send shipping details shortly.</p><footer><p><a href=\"https://shop.example.test/login\">log in to view your order</a></p><p><a href=\"https://shop.example.test/order/receipt\">Order details</a></p></footer></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": []
+  },
+  "notes": "Synthetic navigation-link negative fixture.",
+  "source": "synthetic"
+}
