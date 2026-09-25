@@ -255,7 +255,12 @@ public struct SignInLinkDetector: Sendable {
         }) {
             return true
         }
-        return url.path.split(separator: "/").contains { isHighEntropySegment(String($0)) }
+        if url.path.split(separator: "/").contains(where: { isHighEntropySegment(String($0)) }) {
+            return true
+        }
+        // Some services keep the token client-side, e.g. https://claude.ai/magic-link#<token>:<email>.
+        let fragmentParts = (components.fragment ?? "").split(whereSeparator: { ":&=".contains($0) })
+        return fragmentParts.contains { isHighEntropySegment(String($0)) }
     }
 
     private static func isHighEntropySegment(_ raw: String) -> Bool {

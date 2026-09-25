@@ -310,4 +310,18 @@ struct SignInLinkDetectorTests {
             #expect(link.purpose.actionLabel == "查看账号安全提醒")
         }
     }
+
+    @Test func claudeMagicLinkWithTokenInFragmentIsDetected() throws {
+        let href =
+            "https://claude.ai/magic-link#3f9a7c1e5b2d4a6f8e0c1b3d5f7a9c2e:ZXhhbXBsZUBleGFtcGxlLnRlc3Q="
+        let body = "Sign in to Claude\nClick the button below to sign in. This link expires in 1 hour."
+        let link = SignInLinkDetector().detect(
+            subject: "Your secure link to Claude.ai is here", bodies: [body],
+            links: [MailLink(href: href, text: "Sign in", context: body)])
+        #expect(link?.host == "claude.ai")
+        let footer = SignInLinkDetector().detect(
+            subject: "Your secure link to Claude.ai is here", bodies: [body],
+            links: [MailLink(href: "https://claude.ai/#pricing", text: "Help", context: body)])
+        #expect(footer == nil)
+    }
 }
