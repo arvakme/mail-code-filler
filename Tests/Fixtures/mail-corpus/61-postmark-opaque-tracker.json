@@ -1,0 +1,7 @@
+{
+  "subject": "Assessment email confirmation",
+  "mime": "text/html; charset=utf-8",
+  "body": "<html><body><p>Confirm your email for the assessment record.</p><a href=\"https://track.pstmrk.it/2s/OpaquE8hP4jK2mL9nQ7rS5tV/email/example.test\">Confirm your email</a></body></html>",
+  "expected": {"codes": [], "links": []},
+  "source": "synthetic"
+}

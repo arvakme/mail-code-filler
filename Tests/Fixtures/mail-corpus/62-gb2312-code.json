@@ -1,0 +1,8 @@
+{
+  "subject": "邮箱验证码",
+  "mime": "text/html; charset=gb2312",
+  "transferEncoding": "quoted-printable",
+  "body": "<html><body><p>=D1=E9=D6=A4=C2=EB=A3=BA123456</p></body></html>",
+  "expected": {"codes": ["123456"], "links": []},
+  "source": "synthetic"
+}

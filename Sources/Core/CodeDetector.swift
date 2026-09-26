@@ -36,7 +36,7 @@ public struct CodeDetector: Sendable {
     private static let sameLineBrand = "(?:[ \\t]+" + englishWord + "){1,5}"
 
     private static let forward = compile(
-        cue + #"[ \t]*(?:(?:is|为|為|是)[ \t]*)?[:：=]?[ \t]*"# + token
+        cue + #"[ \t]*(?:(?:is|为|為|是)[ \t]*)?[:：=]?[ \t]*(?:[\[【［(（][ \t]*)?"# + token
     )
     private static let forwardBrand = compile(
         cue + #"[ \t]+(?:for|to)"# + sameLineBrand

@@ -31,6 +31,7 @@ private struct CorpusSample: Decodable {
 
     let subject: String
     let mime: String
+    let transferEncoding: String?
     let body: Body
     let expected: Expected
     let source: String
@@ -50,7 +51,12 @@ struct MailCorpusTests {
             let parts: [(GmailTextPart, Data)]
             switch sample.body {
             case .text(let text):
-                parts = [(GmailTextPart(mime: sample.mime, transferEncoding: nil), Data(text.utf8))]
+                parts = [
+                    (
+                        GmailTextPart(mime: sample.mime, transferEncoding: sample.transferEncoding),
+                        Data(text.utf8)
+                    )
+                ]
             case .parts(let plain, let html):
                 parts = [
                     (GmailTextPart(mime: "text/plain", transferEncoding: nil), Data(plain.utf8)),

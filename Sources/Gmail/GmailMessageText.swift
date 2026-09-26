@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import MailCodeCore
 import SwiftMail
@@ -21,6 +22,10 @@ enum GmailDecodeOutcome: Equatable, Sendable {
 }
 
 enum GmailMessageText {
+    private static let chineseLegacyEncoding = String.Encoding(
+        rawValue: CFStringConvertEncodingToNSStringEncoding(
+            CFStringConvertIANACharSetNameToEncoding("GB18030" as CFString)))
+
     /// At most the first plain part and the first HTML part. `Message.bodies` already
     /// drops attachments and every part nested under `message/rfc822`.
     static func readOrder(_ parts: [MessagePart]) -> [MessagePart] {
@@ -189,6 +194,8 @@ enum GmailMessageText {
             return String(data: data, encoding: .windowsCP1252)
         case "utf-16":
             return String(data: data, encoding: .utf16)
+        case "gb2312", "gbk", "gb18030", "cp936":
+            return String(data: data, encoding: chineseLegacyEncoding)
         default:
             return nil
         }

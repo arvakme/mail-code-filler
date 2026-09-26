@@ -1,0 +1,13 @@
+{
+  "subject": "Verify to keep your account active",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Verify to keep your account active. Use the Confirm button below.",
+    "html": "<html><body><p>Verify to keep your account active.</p><p><a href=\"https://url.au.m.mimecastprotect.com/s/OpaquE8hP4jK2mL9nQ7rS5tV?domain=example.test\">Confirm</a></p><p><a href=\"https://example.test/help\">Help</a></p></body></html>"
+  },
+  "expected": {
+    "codes": [],
+    "links": [{"url": "https://url.au.m.mimecastprotect.com/s/OpaquE8hP4jK2mL9nQ7rS5tV?domain=example.test", "purpose": "verification"}]
+  },
+  "source": "synthetic"
+}

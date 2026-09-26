@@ -76,7 +76,7 @@ public struct SignInLinkDetector: Sendable {
         #"(?i)(?<![A-Za-z])(?:sign[\s-]*in|log[\s-]*in|magic[\s-]*link)(?![A-Za-z])|登录|登入|登錄|确认登录|確認登入|登录链接|登入連結"#
     )
     private static let verificationPattern = compile(
-        #"(?i)\b(?:verify|verifying|verification|confirm|confirming|confirmation)\s+(?:your\s+)?(?:e-?mail|mailbox|account)\b|\b(?:e-?mail|account)\s+(?:verification|confirmation)\b|验证邮箱|驗證郵箱|验证电子邮件|确认电子邮件|確認電子郵件|确认邮箱|確認郵箱|邮箱验证|郵箱驗證|邮箱确认|郵箱確認"#
+        #"(?i)\b(?:verify|verifying|verification|confirm|confirming|confirmation)\s+(?:your\s+)?(?:e-?mail|mailbox|account)\b|\bverify\s+to\s+(?:keep|access|secure|protect|continue)\b|\b(?:e-?mail|account)\s+(?:verification|confirmation)\b|验证邮箱|驗證郵箱|验证电子邮件|确认电子邮件|確認電子郵件|确认邮箱|確認郵箱|邮箱验证|郵箱驗證|邮箱确认|郵箱確認"#
     )
     private static let activationPattern = compile(
         #"(?i)\b(?:activate|activated|activating|activation|complete\s+(?:your\s+)?registration|finish\s+(?:your\s+)?registration)\b|激活(?:您的|你的)?(?:账号|帳號|账户|帳戶)?|完成注册|完成註冊"#
@@ -85,7 +85,7 @@ public struct SignInLinkDetector: Sendable {
         #"(?i)(?:password.{0,16}reset|reset.{0,16}password|forgot.{0,16}password|密码.{0,6}重置|重置.{0,6}密码|找回密码)"#
     )
     private static let accountNoticePattern = compile(
-        #"(?i)\b(?:security\s+alert|new\s+(?:sign[\s-]*in|device)|unusual\s+sign[\s-]*in|suspicious\s+activity|check\s+activity|was\s+this\s+you|review\s+your\s+account|password\s+changed|(?:2fa|two[\s-]*factor(?:\s+authentication)?)\s+changed|new\s+ssh\s+key\s+added|security\s+notice|successful(?:ly)?\s+(?:log[\s-]*in|sign[\s-]*in|logged\s+in|signed\s+in)|(?:log[\s-]*in|sign[\s-]*in)\s+(?:alert|notification|notice)|new\s+log[\s-]*in|signed\s+in\s+(?:from|on|with|using))\b|安全警告|安全通知|异常登录|新设备登录|可疑活动|账号安全提醒|帳號安全提醒|登录提醒|登录通知|成功登录|登录成功"#
+        #"(?i)\b(?:security\s+alert|new\s+sign[\s-]*in|(?:new|unknown|unrecognized)\s+device.{0,40}(?:sign[\s-]*in|signed\s+in|log[\s-]*in|logged\s+in)|unusual\s+sign[\s-]*in|suspicious\s+activity|check\s+activity|was\s+this\s+you|password\s+changed|(?:2fa|two[\s-]*factor(?:\s+authentication)?)\s+changed|new\s+ssh\s+key\s+added|security\s+notice|successful(?:ly)?\s+(?:log[\s-]*in|sign[\s-]*in|logged\s+in|signed\s+in)|(?:log[\s-]*in|sign[\s-]*in)\s+(?:alert|notification|notice)|new\s+log[\s-]*in|signed\s+in\s+(?:from|on|with|using))\b|安全警告|安全通知|异常登录|新设备登录|可疑活动|账号安全提醒|帳號安全提醒|登录提醒|登录通知|成功登录|登录成功"#
     )
     private static let actionPattern = compile(
         #"(?i)\b(?:continue|proceed|open|verify|confirm|access|check|review|click\s+here|use\s+this\s+link|was\s+this\s+you)\b|继续|前往|打开|验证|確認|确认|进入|查看活动"#
@@ -151,6 +151,18 @@ public struct SignInLinkDetector: Sendable {
             Self.purpose(from: target) != nil
         }
         guard emailPurpose != nil || hasSemanticTarget else { return nil }
+
+        // Incidental account words and per-reader article tokens are not credentials.
+        // With no subject or URL purpose, only an explicit sign-in token supports
+        // the weaker intent expressed in the body.
+        if subjectPurpose == nil && !hasSemanticTarget {
+            guard emailPurpose == .signIn, links.count <= 12 else { return nil }
+            eligible = eligible.filter {
+                Self.hasExplicitOneTimeParameter($0.target)
+                    || Self.hasFragmentOneTimeMaterial($0.target)
+            }
+            guard !eligible.isEmpty else { return nil }
+        }
 
         var ranked: [RankedLink] = []
         for (order, candidate) in eligible.enumerated() {
@@ -259,8 +271,25 @@ public struct SignInLinkDetector: Sendable {
             return true
         }
         // Some services keep the token client-side, e.g. https://claude.ai/magic-link#<token>:<email>.
-        let fragmentParts = (components.fragment ?? "").split(whereSeparator: { ":&=".contains($0) })
-        return fragmentParts.contains { isHighEntropySegment(String($0)) }
+        return hasFragmentOneTimeMaterial(url)
+    }
+
+    private static func hasExplicitOneTimeParameter(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        return (components.queryItems ?? []).contains {
+            guard let value = $0.value, !value.isEmpty else { return false }
+            return matches(oneTimeParameter, in: $0.name)
+        }
+    }
+
+    private static func hasFragmentOneTimeMaterial(_ url: URL) -> Bool {
+        guard let fragment = URLComponents(url: url, resolvingAgainstBaseURL: false)?.fragment else {
+            return false
+        }
+        return fragment.split(whereSeparator: { ":&=".contains($0) })
+            .contains { isHighEntropySegment(String($0)) }
     }
 
     private static func isHighEntropySegment(_ raw: String) -> Bool {
@@ -294,6 +323,7 @@ public struct SignInLinkDetector: Sendable {
             || host == "mailgun.org" || host.hasSuffix(".mailgun.org")
             || host == "mailgun.net" || host.hasSuffix(".mailgun.net")
             || host == "click.pstmrk.it"
+            || host == "track.pstmrk.it"
             || host == "hubspotlinks.com" || host.hasSuffix(".hubspotlinks.com")
             || host == "hubspotemail.net" || host.hasSuffix(".hubspotemail.net")
             || host == "braze.com" || host.hasSuffix(".braze.com")

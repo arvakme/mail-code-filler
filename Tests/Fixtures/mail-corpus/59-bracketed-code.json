@@ -1,0 +1,7 @@
+{
+  "subject": "邮箱验证码",
+  "mime": "text/html; charset=utf-8",
+  "body": "<html><body><p>验证码：【123456】</p><p>请用此验证码验证邮箱。</p></body></html>",
+  "expected": {"codes": ["123456"], "links": []},
+  "source": "synthetic"
+}

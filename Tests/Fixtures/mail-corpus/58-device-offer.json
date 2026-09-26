@@ -1,0 +1,7 @@
+{
+  "subject": "Your new device offer",
+  "mime": "text/html; charset=utf-8",
+  "body": "<html><body><p>Get a new device with this offer.</p><a href=\"https://shop.example.test/redeem?code=FAKEPROMO\">Review your account offers</a></body></html>",
+  "expected": {"codes": [], "links": []},
+  "source": "synthetic"
+}

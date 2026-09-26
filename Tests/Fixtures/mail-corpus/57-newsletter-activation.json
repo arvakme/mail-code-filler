@@ -1,0 +1,10 @@
+{
+  "subject": "Weekly stories",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "This week we discuss how to activate a workspace account. Read the article for details.",
+    "html": "<html><body><p>This week we discuss how to activate a workspace account.</p><a href=\"https://news.example.test/api/v1/posts/123?token=Opaque8hP4jK2mL9nQ7rS5tV\">Read the article</a></body></html>"
+  },
+  "expected": {"codes": [], "links": []},
+  "source": "synthetic"
+}

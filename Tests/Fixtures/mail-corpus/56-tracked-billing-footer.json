@@ -1,0 +1,10 @@
+{
+  "subject": "Your subscription update",
+  "mime": "multipart/alternative",
+  "body": {
+    "plain": "Your subscription was updated. Use this link to log in to your account and review billing details.",
+    "html": "<html><body><p>Your subscription was updated.</p><footer><a href=\"https://tlinks.example.test/l/v/OpaquE8hP4jK2mL9nQ7rS5tV/campaign\">Log in to your account</a></footer></body></html>"
+  },
+  "expected": {"codes": [], "links": []},
+  "source": "synthetic"
+}
