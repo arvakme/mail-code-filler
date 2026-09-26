@@ -324,4 +324,22 @@ struct SignInLinkDetectorTests {
             links: [MailLink(href: "https://claude.ai/#pricing", text: "Help", context: body)])
         #expect(footer == nil)
     }
+
+    @Test func loginNotificationWithEducationalFooterIsNotASignInLink() {
+        let body = """
+            This is an account security notice. We detected a successful login to your account             using a WebAuthn security key. If this was you, no action is needed.
+            How to spot a fake email
+            Registrant Educational Materials
+            """
+        let links = [
+            MailLink(href: "https://example.test/security", text: "How to spot a fake email", context: body),
+            MailLink(
+                href: "https://www.icann.org/resources/pages/educational-2012-02-25-en",
+                text: "Registrant Educational Materials", context: body),
+        ]
+        let subject = "example.test | account security notice - successful login using WebAuthn Security Key"
+        let link = SignInLinkDetector().detect(subject: subject, bodies: [body], links: links)
+        #expect(link == nil || link?.purpose == .accountNotice)
+        #expect(link?.host != "www.icann.org")
+    }
 }

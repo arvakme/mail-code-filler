@@ -85,7 +85,7 @@ public struct SignInLinkDetector: Sendable {
         #"(?i)(?:password.{0,16}reset|reset.{0,16}password|forgot.{0,16}password|密码.{0,6}重置|重置.{0,6}密码|找回密码)"#
     )
     private static let accountNoticePattern = compile(
-        #"(?i)\b(?:security\s+alert|new\s+(?:sign[\s-]*in|device)|unusual\s+sign[\s-]*in|suspicious\s+activity|check\s+activity|was\s+this\s+you|review\s+your\s+account|password\s+changed|(?:2fa|two[\s-]*factor(?:\s+authentication)?)\s+changed|new\s+ssh\s+key\s+added)\b|安全警告|异常登录|新设备登录|可疑活动|账号安全提醒|帳號安全提醒"#
+        #"(?i)\b(?:security\s+alert|new\s+(?:sign[\s-]*in|device)|unusual\s+sign[\s-]*in|suspicious\s+activity|check\s+activity|was\s+this\s+you|review\s+your\s+account|password\s+changed|(?:2fa|two[\s-]*factor(?:\s+authentication)?)\s+changed|new\s+ssh\s+key\s+added|security\s+notice|successful(?:ly)?\s+(?:log[\s-]*in|sign[\s-]*in|logged\s+in|signed\s+in)|(?:log[\s-]*in|sign[\s-]*in)\s+(?:alert|notification|notice)|new\s+log[\s-]*in|signed\s+in\s+(?:from|on|with|using))\b|安全警告|安全通知|异常登录|新设备登录|可疑活动|账号安全提醒|帳號安全提醒|登录提醒|登录通知|成功登录|登录成功"#
     )
     private static let actionPattern = compile(
         #"(?i)\b(?:continue|proceed|open|verify|confirm|access|check|review|click\s+here|use\s+this\s+link|was\s+this\s+you)\b|继续|前往|打开|验证|確認|确认|进入|查看活动"#
@@ -271,7 +271,13 @@ public struct SignInLinkDetector: Sendable {
         let letters = segment.filter(\.isLetter).count
         let digits = segment.filter(\.isNumber).count
         let unique = Set(segment).count
-        return letters >= 6 && digits >= 2 && unique >= 10
+        guard letters >= 6, digits >= 2, unique >= 10 else { return false }
+        // Readable slugs such as "educational-2012-02-25-en" split into pure words and numbers;
+        // real tokens mix letters and digits inside one run.
+        let runs = segment.split(whereSeparator: { "-_.~".contains($0) })
+        return runs.contains { run in
+            run.count >= 6 && run.contains(where: \.isLetter) && run.contains(where: \.isNumber)
+        }
     }
 
     /// Known trackers are only evidence of the target they expose. Their own IDs,
