@@ -31,6 +31,20 @@ public struct Candidate: Identifiable, Equatable, Sendable {
     public let subject: String
     public let receivedAt: Date
     public let expiresAt: Date
+    public let isFromJunk: Bool
+
+    public init(
+        id: ID, kind: CandidateKind, source: String, subject: String,
+        receivedAt: Date, expiresAt: Date, isFromJunk: Bool = false
+    ) {
+        self.id = id
+        self.kind = kind
+        self.source = source
+        self.subject = subject
+        self.receivedAt = receivedAt
+        self.expiresAt = expiresAt
+        self.isFromJunk = isFromJunk
+    }
 
     public var code: String? {
         guard case .code(let value) = kind else { return nil }
@@ -61,7 +75,7 @@ public actor CandidateVault {
     public func insert(
         message: MessageID, codes: [String], loginLink: SignInLink? = nil,
         source: String, subject: String = "",
-        receivedAt: Date, now: Date
+        receivedAt: Date, now: Date, isFromJunk: Bool = false
     ) {
         expire(now: now)
         let expiry = receivedAt.addingTimeInterval(Self.retention)
@@ -75,7 +89,7 @@ public actor CandidateVault {
             guard !existing.contains(id), !consumed.contains(id) else { return nil }
             return Candidate(
                 id: id, kind: .code(code), source: source, subject: subject,
-                receivedAt: receivedAt, expiresAt: expiry
+                receivedAt: receivedAt, expiresAt: expiry, isFromJunk: isFromJunk
             )
         }
         if let loginLink {
@@ -84,7 +98,7 @@ public actor CandidateVault {
                 additions.append(
                     Candidate(
                         id: id, kind: .loginLink(loginLink), source: source, subject: subject,
-                        receivedAt: receivedAt, expiresAt: expiry
+                        receivedAt: receivedAt, expiresAt: expiry, isFromJunk: isFromJunk
                     ))
             }
         }

@@ -311,7 +311,7 @@ public final class IMAPAccountSession {
         await vault.insert(
             message: mail.id, codes: codes, loginLink: loginLink,
             source: mail.sender, subject: mail.subject,
-            receivedAt: mail.receivedAt, now: Date())
+            receivedAt: mail.receivedAt, now: Date(), isFromJunk: mail.isFromJunk)
         guard generation == token, !Task.isCancelled else { return }
         await onCandidatesChanged?()
     }

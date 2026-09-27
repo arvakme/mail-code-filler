@@ -21,12 +21,17 @@ struct MicrosoftOAuthTests {
         #expect(url.host == "login.microsoftonline.com")
         #expect(url.path == "/common/oauth2/v2.0/authorize")
         #expect(query["client_id"] == clientID)
-        #expect(query["scope"] == MicrosoftOAuth.scope)
+        #expect(query["scope"] == MicrosoftOAuth.signInScope)
         #expect(query["redirect_uri"] == MicrosoftOAuth.redirectURI)
         #expect(query["code_challenge"] == challenge)
         #expect(query["code_challenge_method"] == "S256")
         #expect(query["state"] == state)
         #expect(query["client_secret"] == nil)
+        let loopback = "http://localhost:49152"
+        let browserURL = client.authorizationURL(
+            state: state, challenge: challenge, redirectURI: loopback)
+        let browserQuery = URLComponents(url: browserURL, resolvingAgainstBaseURL: false)!.queryItems!
+        #expect(browserQuery.first { $0.name == "redirect_uri" }?.value == loopback)
         let callback = URL(string: "\(MicrosoftOAuth.redirectURI)?code=synthetic-code&state=\(state)")!
         #expect(
             try MicrosoftOAuth.authorizationCode(from: callback, expectedState: state) == "synthetic-code")
@@ -50,8 +55,9 @@ struct MicrosoftOAuthTests {
         let store = MemoryRefreshStore()
         let manager = MicrosoftOAuthTokenManager(client: client, store: store)
         let account = "outlook:person@outlook.com"
-        try await manager.authorize(
-            code: "synthetic-code", verifier: "synthetic-verifier", accountID: account)
+        _ = try await manager.authorize(
+            code: "synthetic-code", verifier: "synthetic-verifier",
+            redirectURI: "http://localhost:49152", accountID: account)
         #expect(try store.load(accountID: account) == "first-refresh")
         #expect(try await manager.accessToken(accountID: account, forceRefresh: false) == "first-access")
         #expect(try await manager.accessToken(accountID: account, forceRefresh: true) == "second-access")
@@ -70,8 +76,8 @@ struct MicrosoftOAuthTests {
         #expect(exchange["grant_type"] == "authorization_code")
         #expect(exchange["client_id"] == clientID)
         #expect(exchange["code_verifier"] == "synthetic-verifier")
-        #expect(exchange["redirect_uri"] == MicrosoftOAuth.redirectURI)
-        #expect(exchange["scope"] == MicrosoftOAuth.scope)
+        #expect(exchange["redirect_uri"] == "http://localhost:49152")
+        #expect(exchange["scope"] == MicrosoftOAuth.signInScope)
         #expect(exchange["client_secret"] == nil)
         #expect(requests[1]["refresh_token"] == "first-refresh")
         #expect(requests[2]["refresh_token"] == "second-refresh")
@@ -160,5 +166,31 @@ private final class FakeTokenURLProtocolState: @unchecked Sendable {
             seen.append(Dictionary(uniqueKeysWithValues: fields.map { ($0.name, $0.value ?? "") }))
             return responses.removeFirst()
         }
+    }
+
+    @Test func personalAccountsGetLoginAndDomainHints() throws {
+        let client = MicrosoftOAuthTokenClient(clientID: "client", loginHint: "person@outlook.com")
+        let url = client.authorizationURL(state: "s", challenge: "c")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(items.contains(URLQueryItem(name: "login_hint", value: "person@outlook.com")))
+        #expect(items.contains(URLQueryItem(name: "domain_hint", value: "consumers")))
+        let work = MicrosoftOAuthTokenClient(clientID: "client", loginHint: "me@contoso.example")
+        let workItems =
+            URLComponents(
+                url: work.authorizationURL(state: "s", challenge: "c"), resolvingAgainstBaseURL: false)?
+            .queryItems ?? []
+        #expect(!workItems.contains { $0.name == "domain_hint" })
+    }
+
+    @Test func idTokenAccountIsReadForMismatchCheck() {
+        func segment(_ json: String) -> String {
+            Data(json.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        }
+        let token = "\(segment("{}")).\(segment(#"{"email":"Other@Outlook.com"}"#)).sig"
+        #expect(MicrosoftOAuth.signedInAccount(idToken: token) == "other@outlook.com")
+        #expect(MicrosoftOAuth.signedInAccount(idToken: "opaque") == nil)
+        let error = MicrosoftOAuthError.accountMismatch(signedIn: "a@outlook.com", expected: "b@outlook.com")
+        #expect(error.errorDescription?.contains("b@outlook.com") == true)
     }
 }

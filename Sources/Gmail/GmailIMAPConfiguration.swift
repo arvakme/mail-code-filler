@@ -16,6 +16,8 @@ struct IMAPFeedConfiguration: Sendable {
     var codeWaitLivenessInterval: Duration
     var pollInterval: Duration
     var codeWaitPollInterval: Duration
+    var junkInterval: Duration
+    var codeWaitJunkInterval: Duration
     var backoff: [Duration]
     var now: @Sendable () -> Date
 
@@ -42,6 +44,8 @@ struct IMAPFeedConfiguration: Sendable {
             codeWaitLivenessInterval: .seconds(4),
             pollInterval: provider == .qqMail ? .seconds(10) : .seconds(60),
             codeWaitPollInterval: .seconds(5),
+            junkInterval: .seconds(60),
+            codeWaitJunkInterval: .seconds(4),
             backoff: [.seconds(1), .seconds(2), .seconds(5), .seconds(10), .seconds(30)],
             now: Date.init)
     }
@@ -59,6 +63,8 @@ struct IMAPFeedConfiguration: Sendable {
         codeWaitLivenessInterval: Duration = .milliseconds(40),
         pollInterval: Duration = .milliseconds(100),
         codeWaitPollInterval: Duration = .milliseconds(50),
+        junkInterval: Duration = .milliseconds(200),
+        codeWaitJunkInterval: Duration = .milliseconds(40),
         backoff: [Duration] = [.milliseconds(50)]
     ) -> IMAPFeedConfiguration {
         IMAPFeedConfiguration(
@@ -75,6 +81,8 @@ struct IMAPFeedConfiguration: Sendable {
             codeWaitLivenessInterval: codeWaitLivenessInterval,
             pollInterval: pollInterval,
             codeWaitPollInterval: codeWaitPollInterval,
+            junkInterval: junkInterval,
+            codeWaitJunkInterval: codeWaitJunkInterval,
             backoff: backoff,
             now: now)
     }

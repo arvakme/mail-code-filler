@@ -32,11 +32,12 @@ public struct ReceivedMail: Sendable {
     public let links: [MailLink]
     public let sender: String
     public let receivedAt: Date
+    public let isFromJunk: Bool
     public let fetchMilliseconds: Double?
 
     public init(
         id: MessageID, subject: String, bodies: [String], links: [MailLink] = [], sender: String,
-        receivedAt: Date, fetchMilliseconds: Double? = nil
+        receivedAt: Date, fetchMilliseconds: Double? = nil, isFromJunk: Bool = false
     ) {
         self.id = id
         self.subject = subject
@@ -45,6 +46,7 @@ public struct ReceivedMail: Sendable {
         self.sender = sender
         self.fetchMilliseconds = fetchMilliseconds
         self.receivedAt = receivedAt
+        self.isFromJunk = isFromJunk
     }
 }
 

@@ -27,6 +27,7 @@ struct CandidateList: View {
                     }
                     .padding(.vertical, 2)
                 }
+                .scrollIndicators(.never)
                 .frame(maxHeight: 210)
             }
         }
@@ -53,6 +54,13 @@ struct CandidateList: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                    }
+                    if candidate.isFromJunk {
+                        Text("垃圾邮件")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .background(.fill.tertiary, in: .capsule)
                     }
                     HStack(spacing: 4) {
                         Text(candidate.subject.isEmpty ? "邮件" : candidate.subject)
@@ -102,6 +110,7 @@ struct CandidateList: View {
         .buttonStyle(.plain)
         .accessibilityLabel(
             accessibilityLabel(for: candidate, sender: sender)
+                + (candidate.isFromJunk ? "，垃圾邮件" : "")
                 + (matchesCurrentSite ? "，匹配当前网站" : "")
         )
         .accessibilityHint(candidate.isCode ? "复制并从待用列表移除" : "在默认浏览器打开并从待用列表移除")

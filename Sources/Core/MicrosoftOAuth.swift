@@ -11,6 +11,8 @@ public enum MicrosoftOAuthError: LocalizedError, Equatable, Sendable {
     case tokenRequestFailed
     case missingRefreshToken
     case keychain(OSStatus)
+    /// The browser signed in a different Microsoft account than the mailbox entered in the app.
+    case accountMismatch(signedIn: String, expected: String)
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +22,8 @@ public enum MicrosoftOAuthError: LocalizedError, Equatable, Sendable {
         case .needsReauthentication, .missingRefreshToken: "需要重新登录 Microsoft 账户。"
         case .tokenRequestFailed: "暂时无法获取 Microsoft 登录令牌，请检查网络后重试。"
         case .keychain: "无法访问登录钥匙串，Microsoft 登录令牌未保存。"
+        case .accountMismatch(let signedIn, let expected):
+            "浏览器里登录的是 \(signedIn)，不是 \(expected)。请在登录页切换到 \(expected) 后重试。"
         }
     }
 }
@@ -28,6 +32,23 @@ public enum MicrosoftOAuth {
     public static let redirectURI = "msauth.dev.zhijie.MailCodeFiller://auth"
     public static let callbackScheme = "msauth.dev.zhijie.MailCodeFiller"
     public static let scope = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
+    /// Sign-in also asks for an ID token so the app can confirm which account the browser used.
+    public static let signInScope = "openid email profile " + scope
+
+    /// Unverified read of the ID token's account name. It only guards against signing in the
+    /// wrong account; the token came straight from Microsoft's token endpoint over TLS.
+    public static func signedInAccount(idToken: String) -> String? {
+        let parts = idToken.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while payload.count % 4 != 0 { payload += "=" }
+        guard let data = Data(base64Encoded: payload),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        let value = (json["email"] as? String) ?? (json["preferred_username"] as? String)
+        return value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
 
     public static func clientID(bundle: Bundle = .main) -> String? {
         let value =
@@ -51,8 +72,12 @@ public enum MicrosoftOAuth {
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 
-    public static func authorizationCode(from callback: URL, expectedState: String) throws -> String {
-        guard callback.scheme == callbackScheme, callback.host == "auth",
+    public static func authorizationCode(
+        from callback: URL, expectedState: String, redirectURI: String = redirectURI
+    ) throws -> String {
+        guard let redirect = URL(string: redirectURI),
+            callback.scheme == redirect.scheme, callback.host == redirect.host,
+            callback.port == redirect.port, callback.path == redirect.path,
             let components = URLComponents(url: callback, resolvingAgainstBaseURL: false),
             components.queryItems?.first(where: { $0.name == "state" })?.value == expectedState,
             let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
@@ -66,11 +91,13 @@ public struct MicrosoftTokenResponse: Decodable, Sendable {
     public let accessToken: String
     public let refreshToken: String?
     public let expiresIn: Int
+    public let idToken: String?
 
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
         case refreshToken = "refresh_token"
         case expiresIn = "expires_in"
+        case idToken = "id_token"
     }
 }
 
@@ -78,38 +105,59 @@ public struct MicrosoftOAuthTokenClient: Sendable {
     private let clientID: String
     private let authority: URL
     private let session: URLSession
+    private let loginHint: String?
 
     public init(
         clientID: String,
         authority: URL = URL(string: "https://login.microsoftonline.com/common")!,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        loginHint: String? = nil
     ) {
         self.clientID = clientID
         self.authority = authority
         self.session = session
+        self.loginHint = loginHint
     }
 
-    public func authorizationURL(state: String, challenge: String) -> URL {
+    /// Personal Microsoft account domains go straight to the consumer sign-in page, skipping the
+    /// work/personal account discovery hop that can lose the browser session (AADSTS165000).
+    public static func isConsumerDomain(_ email: String) -> Bool {
+        guard let domain = email.split(separator: "@").last?.lowercased() else { return false }
+        return ["outlook.com", "hotmail.com", "live.com", "msn.com", "passport.com"].contains(domain)
+            || domain.hasPrefix("outlook.") || domain.hasPrefix("hotmail.") || domain.hasPrefix("live.")
+    }
+
+    public func authorizationURL(
+        state: String, challenge: String, redirectURI: String = MicrosoftOAuth.redirectURI
+    ) -> URL {
         var components = URLComponents(
             url: authority.appending(path: "oauth2/v2.0/authorize"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: clientID),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "redirect_uri", value: MicrosoftOAuth.redirectURI),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
             URLQueryItem(name: "response_mode", value: "query"),
-            URLQueryItem(name: "scope", value: MicrosoftOAuth.scope),
+            URLQueryItem(name: "scope", value: MicrosoftOAuth.signInScope),
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
+        if let loginHint {
+            components.queryItems?.append(URLQueryItem(name: "login_hint", value: loginHint))
+            if Self.isConsumerDomain(loginHint) {
+                components.queryItems?.append(URLQueryItem(name: "domain_hint", value: "consumers"))
+            }
+        }
         return components.url!
     }
 
-    public func exchange(code: String, verifier: String) async throws -> MicrosoftTokenResponse {
+    public func exchange(
+        code: String, verifier: String, redirectURI: String = MicrosoftOAuth.redirectURI
+    ) async throws -> MicrosoftTokenResponse {
         try await request([
             "grant_type": "authorization_code", "client_id": clientID, "code": code,
-            "code_verifier": verifier, "redirect_uri": MicrosoftOAuth.redirectURI,
-            "scope": MicrosoftOAuth.scope,
+            "code_verifier": verifier, "redirect_uri": redirectURI,
+            "scope": MicrosoftOAuth.signInScope,
         ])
     }
 
@@ -224,9 +272,22 @@ public actor MicrosoftOAuthTokenManager: MicrosoftAccessTokenProviding {
         self.store = store
     }
 
-    public func authorize(code: String, verifier: String, accountID: String) async throws {
-        let token = try await client.exchange(code: code, verifier: verifier)
+    public func authorize(
+        code: String, verifier: String, redirectURI: String = MicrosoftOAuth.redirectURI,
+        accountID: String, expectedEmail: String? = nil
+    ) async throws -> String? {
+        let token = try await client.exchange(
+            code: code, verifier: verifier, redirectURI: redirectURI)
         try Task.checkCancellation()
+        // A Microsoft account can own several aliases, so a different sign-in name is not an error
+        // by itself; the caller only surfaces it as a hint.
+        var differentSignIn: String?
+        if let expectedEmail, let idToken = token.idToken,
+            let signedIn = MicrosoftOAuth.signedInAccount(idToken: idToken),
+            signedIn != expectedEmail.lowercased()
+        {
+            differentSignIn = signedIn
+        }
         guard let refresh = token.refreshToken, !refresh.isEmpty else {
             throw MicrosoftOAuthError.missingRefreshToken
         }
@@ -237,6 +298,7 @@ public actor MicrosoftOAuthTokenManager: MicrosoftAccessTokenProviding {
         accessTokens[accountID] = (
             token.accessToken, Date().addingTimeInterval(TimeInterval(token.expiresIn))
         )
+        return differentSignIn
     }
 
     public func accessToken(accountID: String, forceRefresh: Bool = false) async throws -> String {

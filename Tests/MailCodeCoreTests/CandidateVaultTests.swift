@@ -37,6 +37,26 @@ struct CandidateVaultTests {
         #expect(await vault.snapshot(now: now).map(\.id.message.account) == ["outlook@example.test"])
     }
 
+    @Test func sameUIDInInboxAndJunkKeepDistinctSourceAndConsumption() async throws {
+        let vault = CandidateVault()
+        let inbox = message(uid: 12)
+        let junk = MessageID(
+            account: inbox.account, mailbox: "Junk Email", uidValidity: inbox.uidValidity, uid: inbox.uid)
+        await vault.insert(
+            message: inbox, codes: ["123456"], source: "Example", receivedAt: now, now: now)
+        await vault.insert(
+            message: junk, codes: ["654321"], source: "Example", receivedAt: now, now: now,
+            isFromJunk: true)
+        let candidates = await vault.snapshot(now: now)
+        #expect(candidates.count == 2)
+        let junkCandidate = try #require(candidates.first(where: { $0.id.message.mailbox == "Junk Email" }))
+        #expect(junkCandidate.isFromJunk)
+        #expect(candidates.first(where: { $0.id.message.mailbox == "INBOX" })?.isFromJunk == false)
+        #expect(await vault.consume(id: junkCandidate.id, afterSuccessfulAction: true, now: now) != nil)
+        #expect(await vault.snapshot(now: now).map(\.code) == ["123456"])
+        #expect(await vault.snapshot(now: now + CandidateVault.retention).isEmpty)
+    }
+
     @Test func staleOrFutureMessageCannotExtendRetention() async {
         let vault = CandidateVault()
         for date in [now - CandidateVault.retention, now + 1] {

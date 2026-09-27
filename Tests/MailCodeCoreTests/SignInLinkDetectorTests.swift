@@ -232,7 +232,8 @@ struct SignInLinkDetectorTests {
                 bodies: ["Use this link to sign in."],
                 links: [MailLink(href: wrapped, text: "Sign in")]))
         #expect(candidate.url.absoluteString == wrapped)
-        #expect(candidate.host == "abc.r.us-east-1.awstrack.me")
+        // The card shows the real destination; the tracked URL is still what gets opened.
+        #expect(candidate.host == "accounts.example.test")
 
         let home =
             "https://abc.r.us-east-1.awstrack.me/L0/https%3A%2F%2Fexample.test%2F/1/opaque-id/opaque-signature"
@@ -341,5 +342,24 @@ struct SignInLinkDetectorTests {
         let link = SignInLinkDetector().detect(subject: subject, bodies: [body], links: links)
         #expect(link == nil || link?.purpose == .accountNotice)
         #expect(link?.host != "www.icann.org")
+    }
+
+    @Test func safeLinksWrappedMagicLinkIsUnwrapped() throws {
+        let real =
+            "https://claude.ai/magic-link#3f9a7c1e5b2d4a6f8e0c1b3d5f7a9c2e:ZXhhbXBsZUBleGFtcGxlLnRlc3Q="
+        var wrapper = URLComponents(string: "https://nam12.safelinks.protection.outlook.com/")!
+        wrapper.queryItems = [
+            URLQueryItem(name: "url", value: real),
+            URLQueryItem(name: "data", value: "05%7C02%7Cperson%40example.test%7Cabc123def456"),
+            URLQueryItem(name: "sdata", value: "Zk9xYWJjMTIzNDU2Nzg5MGRlZg%3D%3D"),
+            URLQueryItem(name: "reserved", value: "0"),
+        ]
+        let body = "Sign in to Claude\nClick the button below to sign in. This link expires in 1 hour."
+        let link = SignInLinkDetector().detect(
+            subject: "Your secure link to Claude.ai is here", bodies: [body],
+            links: [MailLink(href: try #require(wrapper.url).absoluteString, text: "Sign in", context: body)])
+        #expect(link?.registrableHost == "claude.ai")
+        // The wrapped URL is what gets opened, so Safe Links still scans it at click time.
+        #expect(link?.url.host?.hasSuffix("safelinks.protection.outlook.com") == true)
     }
 }

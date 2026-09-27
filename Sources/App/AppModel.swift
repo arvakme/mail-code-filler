@@ -223,17 +223,72 @@ final class AppModel {
     }
 
     var isOutlookConfigured: Bool { microsoftTokenManager != nil }
+    var microsoftSignInNotice: String?
+
+    enum MicrosoftSignInStatus: Equatable {
+        case idle
+        case waiting
+        case succeeded
+        case failed(String)
+    }
+
+    /// The sign-in runs on the model, not the form: the menu bar panel closes as soon as the
+    /// browser takes focus, and cancelling on disappear killed the loopback listener before the
+    /// browser redirected back ("The site refused the connection").
+    private(set) var microsoftSignInStatus: MicrosoftSignInStatus = .idle
+    @ObservationIgnored private var microsoftSignInTask: Task<Void, Never>?
+
+    func startMicrosoftSignIn(email: String) {
+        microsoftSignInTask?.cancel()
+        microsoftSignInStatus = .waiting
+        microsoftSignInTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await connectMicrosoftAccount(email: email)
+                microsoftSignInStatus = .succeeded
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    microsoftSignInStatus = .idle
+                } else {
+                    microsoftSignInStatus = .failed(
+                        (error as? LocalizedError)?.errorDescription ?? "登录失败，请重试。")
+                }
+            }
+            microsoftSignInTask = nil
+        }
+    }
+
+    func cancelMicrosoftSignIn() {
+        microsoftSignInTask?.cancel()
+        microsoftSignInTask = nil
+        microsoftOAuthCoordinator.cancel()
+        microsoftSignInStatus = .idle
+    }
+
+    func acknowledgeMicrosoftSignIn() {
+        if microsoftSignInStatus != .waiting { microsoftSignInStatus = .idle }
+    }
 
     func connectMicrosoftAccount(email: String) async throws {
         guard !isOfflinePreview, let clientID = MicrosoftOAuth.clientID(),
             let microsoftTokenManager
         else { throw MicrosoftOAuthError.missingClientID }
         let validated = try IMAPAccountCredentials.validated(provider: .outlook, email: email, secret: "")
-        let client = MicrosoftOAuthTokenClient(clientID: clientID)
-        let authorization = try await microsoftOAuthCoordinator.authorize(client: client)
-        try await microsoftTokenManager.authorize(
+        let client = MicrosoftOAuthTokenClient(clientID: clientID, loginHint: validated.email)
+        microsoftSignInNotice = nil
+        let authorization = try await microsoftOAuthCoordinator.authorize(client: client) {
+            self.microsoftSignInNotice = "本机回调无法启动，将改用系统登录窗口（可能在 Safari 中打开）。"
+        }
+        try Task.checkCancellation()
+        let differentSignIn = try await microsoftTokenManager.authorize(
             code: authorization.code, verifier: authorization.verifier,
-            accountID: validated.accountID)
+            redirectURI: authorization.redirectURI,
+            accountID: validated.accountID, expectedEmail: validated.email)
+        if let differentSignIn {
+            microsoftSignInNotice =
+                "浏览器登录的账号显示为 \(differentSignIn)。如果它是 \(validated.email) 的别名可以忽略；若收信被拒，请在登录页切换到 \(validated.email)。"
+        }
+        try Task.checkCancellation()
         try await connectAccount(provider: .outlook, email: validated.email, secret: "")
     }
 
@@ -259,7 +314,8 @@ final class AppModel {
         if accounts.allSatisfy({ $0.phase == .paused || $0.phase == .notConfigured }) {
             return "邮箱监听已暂停或尚未配置凭据。\n恢复连接后会补查最近邮件。"
         }
-        return "最近 10 分钟暂未识别到验证码。\n各账户只检查 INBOX；新邮件到达后会自动处理。"
+        let folders = settings.checksJunkFolder ? "INBOX 和垃圾邮件文件夹" : "INBOX"
+        return "最近 10 分钟暂未识别到验证码。\n各账户检查\(folders)；新邮件到达后会自动处理。"
     }
 
     func receivingMailbox(for candidate: Candidate) -> String? {
@@ -276,7 +332,8 @@ final class AppModel {
             account: account, vault: vault,
             feed: IMAPAccountFeed(
                 provider: account.provider, codeWaitSignal: codeWaitController,
-                microsoftTokens: microsoftTokenManager),
+                microsoftTokens: microsoftTokenManager,
+                checksJunkFolder: { [weak self] in self?.settings.checksJunkFolder ?? false }),
             credentials: credentials, preferences: preferences,
             linkCardLevel: { [weak self] in self?.settings.linkCardLevel ?? .signInAndVerification })
         session.recentMissedMail = recentMissedMail

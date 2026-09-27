@@ -106,7 +106,8 @@ struct AutoFillSettingsView: View {
                             }
                         }
                     }
-                }.frame(maxHeight: 150)
+                }
+                .scrollIndicators(.never).frame(maxHeight: 150)
             }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             Text("仅短期验证码、来源和关联规则通过本机钥匙串共享；扩展不读取 Gmail 密码或邮件正文。超出接收后 10 分钟的码不会返回，即使主 App 已退出。")

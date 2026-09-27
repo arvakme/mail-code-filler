@@ -11,7 +11,9 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
     private let configuration: IMAPFeedConfiguration
     private let codeWaitSignal: (any CodeWaitSignal)?
     private let microsoftTokens: (any MicrosoftAccessTokenProviding)?
+    private let checksJunkFolder: @MainActor @Sendable () -> Bool
     private let active = Mutex<IMAPServer?>(nil)
+    private let junkMailbox = Mutex<JunkMailboxCache>(.unknown)
 
     public convenience init() {
         self.init(provider: .gmail)
@@ -19,16 +21,18 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
 
     public convenience init(
         provider: IMAPProvider, codeWaitSignal: (any CodeWaitSignal)? = nil,
-        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil
+        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil,
+        checksJunkFolder: @escaping @MainActor @Sendable () -> Bool = { false }
     ) {
         self.init(
             configuration: .production(provider), codeWaitSignal: codeWaitSignal,
-            microsoftTokens: microsoftTokens)
+            microsoftTokens: microsoftTokens, checksJunkFolder: checksJunkFolder)
     }
 
     init(
         configuration: IMAPFeedConfiguration, codeWaitSignal: (any CodeWaitSignal)? = nil,
-        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil
+        microsoftTokens: (any MicrosoftAccessTokenProviding)? = nil,
+        checksJunkFolder: @escaping @MainActor @Sendable () -> Bool = { false }
     ) {
         GmailMailLogging.install()
         precondition(!configuration.backoff.isEmpty)
@@ -39,6 +43,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         self.configuration = configuration
         self.codeWaitSignal = codeWaitSignal
         self.microsoftTokens = microsoftTokens
+        self.checksJunkFolder = checksJunkFolder
     }
 
     public func run(
@@ -124,6 +129,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                 do {
                     try await server.authenticateXOAUTH2(email: credentials.email, accessToken: token)
                 } catch {
+                    Self.logXOAUTH2Failure(error, token: token)
                     guard Self.isAuthenticationError(error) else { throw error }
                     let refreshed = try await microsoftTokens.accessToken(
                         accountID: credentials.accountID, forceRefresh: true)
@@ -211,15 +217,17 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
     private func catchup(
         server: IMAPServer,
         selection: Mailbox.Selection,
+        mailbox: String,
+        role: String,
         accountID: String,
         handled: inout Set<UInt32>,
         announcedFuture: inout Set<UInt32>,
-        attempt: Attempt,
+        skippedOversized: inout Set<UInt32>,
         synchronizedAt: ContinuousClock.Instant,
         yieldToNewMail: () -> Bool,
         onEvent: @escaping @Sendable (IMAPFeedEvent) async -> Void
     ) async throws -> Bool {
-        handled.formUnion(attempt.skippedOversized)
+        handled.formUnion(skippedOversized)
         let count = selection.messageCount
         guard count > 0 else { return false }
         let upper = min(count, Int(UInt32.max))
@@ -244,7 +252,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         )
         if !decision.fetchUIDs.isEmpty {
             Self.logger.notice(
-                "provider=\(self.configuration.provider.provider.rawValue, privacy: .public) event=fetch count=\(decision.fetchUIDs.count, privacy: .public)"
+                "provider=\(self.configuration.provider.provider.rawValue, privacy: .public) role=\(role, privacy: .public) event=fetch count=\(decision.fetchUIDs.count, privacy: .public)"
             )
         }
         for uid in decision.expiredUIDs {
@@ -275,17 +283,18 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                     .message(
                         ReceivedMail(
                             id: MailCodeCore.MessageID(
-                                account: accountID, mailbox: configuration.provider.inboxName,
+                                account: accountID, mailbox: mailbox,
                                 uidValidity: selection.uidValidity.value, uid: uid
                             ),
                             subject: mail.subject, bodies: mail.bodies, links: mail.links,
                             sender: mail.sender,
                             receivedAt: received,
-                            fetchMilliseconds: Self.milliseconds(synchronizedAt.duration(to: .now))
+                            fetchMilliseconds: Self.milliseconds(synchronizedAt.duration(to: .now)),
+                            isFromJunk: role == "junk"
                         )))
                 handled.insert(uid)
             case .notice(let notice):
-                if notice == GmailNotice.oversized { attempt.skippedOversized.insert(uid) }
+                if notice == GmailNotice.oversized { skippedOversized.insert(uid) }
                 await onEvent(.notice(notice))
                 handled.insert(uid)
             }
@@ -384,6 +393,78 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         return try await watch.idle()
     }
 
+    /// Junk uses the existing primary fetch connection; the named INBOX watcher
+    /// remains selected and in IDLE throughout this read-only pass.
+    private func scanJunk(
+        server: IMAPServer, accountID: String, attempt: Attempt,
+        onEvent: @escaping @Sendable (IMAPFeedEvent) async -> Void
+    ) async -> Bool {
+        let name: String
+        switch junkMailbox.withLock({ $0 }) {
+        case .found(let cached):
+            name = cached
+        case .missing:
+            return false
+        case .unknown:
+            do {
+                let discovered = try await JunkMailboxDiscovery.discover(
+                    on: server, provider: configuration.provider.provider)
+                guard let discovered else {
+                    junkMailbox.withLock { $0 = .missing }
+                    Self.logger.notice(
+                        "provider=\(self.configuration.provider.provider.rawValue, privacy: .public) role=junk event=folder_missing count=0"
+                    )
+                    return false
+                }
+                junkMailbox.withLock { $0 = .found(discovered) }
+                name = discovered
+            } catch {
+                Self.logJunkError(error, provider: configuration.provider.provider)
+                return false
+            }
+        }
+        do {
+            let synchronizedAt = ContinuousClock.now
+            let selection = try await server.examineMailbox(name)
+            guard selection.isReadOnly else { throw GmailIMAPError.mailboxNotReadOnly }
+            let progress = attempt.junk
+            if progress.validity != selection.uidValidity.value {
+                progress.validity = selection.uidValidity.value
+                progress.handled.removeAll()
+                progress.announcedFuture.removeAll()
+                progress.skippedOversized.removeAll()
+                progress.announcedIncomplete = false
+            }
+            if selection.uidValidity.value == 0 && !progress.announcedMissingValidity {
+                progress.announcedMissingValidity = true
+                await onEvent(.notice(GmailNotice.missingValidity))
+            }
+            let incomplete = try await catchup(
+                server: server, selection: selection, mailbox: name, role: "junk", accountID: accountID,
+                handled: &progress.handled, announcedFuture: &progress.announcedFuture,
+                skippedOversized: &progress.skippedOversized, synchronizedAt: synchronizedAt,
+                yieldToNewMail: { false }, onEvent: onEvent)
+            if incomplete && !progress.announcedIncomplete {
+                progress.announcedIncomplete = true
+                await onEvent(.notice(GmailNotice.incomplete))
+            }
+            if !incomplete { progress.announcedIncomplete = false }
+            return true
+        } catch {
+            if case .selectFailed = error as? IMAPError {
+                junkMailbox.withLock { $0 = .unknown }
+            }
+            Self.logJunkError(error, provider: configuration.provider.provider)
+            return true
+        }
+    }
+
+    private static func logJunkError(_ error: Error, provider: IMAPProvider) {
+        logger.notice(
+            "provider=\(provider.rawValue, privacy: .public) role=junk event=check_error category=\(transportErrorCategory(error), privacy: .public)"
+        )
+    }
+
     /// Watcher is already in IDLE. Primary EXAMINE/FETCH runs beside it, so an
     /// EXISTS during `onEvent` is not dropped on the fetch connection.
     private func follow(
@@ -400,6 +481,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
     ) async throws -> WatchAction {
         let deadline = ContinuousClock.now.advanced(by: configuration.idleRenewal)
         var nextLiveness = ContinuousClock.now.advanced(by: configuration.livenessInterval)
+        var nextJunk = ContinuousClock.now
         var lastKnownExists = 0
         var needsCatchup = true
         while true {
@@ -430,9 +512,10 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                     await onEvent(.notice(GmailNotice.missingValidity))
                 }
                 let sawIncomplete = try await catchup(
-                    server: server, selection: selection, accountID: accountID,
+                    server: server, selection: selection,
+                    mailbox: configuration.provider.inboxName, role: "inbox", accountID: accountID,
                     handled: &handled, announcedFuture: &announcedFuture,
-                    attempt: attempt, synchronizedAt: synchronizedAt,
+                    skippedOversized: &attempt.skippedOversized, synchronizedAt: synchronizedAt,
                     yieldToNewMail: { inbox.generation() != mark }, onEvent: onEvent)
                 if sawIncomplete && !announcedIncomplete {
                     announcedIncomplete = true
@@ -442,13 +525,31 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                 if inbox.generation() != mark { continue }
                 needsCatchup = false
             }
+            let waiting = await codeWaitSignal?.currentWindow() != nil
+            let junkInterval = waiting ? configuration.codeWaitJunkInterval : configuration.junkInterval
+            if waiting {
+                nextJunk = min(nextJunk, ContinuousClock.now.advanced(by: junkInterval))
+            }
+            let junkEnabled = await checksJunkFolder()
+            if junkEnabled && ContinuousClock.now >= nextJunk {
+                let selectedJunk = await scanJunk(
+                    server: server, accountID: accountID, attempt: attempt, onEvent: onEvent)
+                nextJunk = ContinuousClock.now.advanced(by: junkInterval)
+                if selectedJunk {
+                    let restored = try await server.examineMailbox(configuration.provider.inboxName)
+                    guard restored.isReadOnly else { throw GmailIMAPError.mailboxNotReadOnly }
+                    needsCatchup = true
+                    continue
+                }
+            }
             attempt.failures = 0
             await Self.emitState(
                 .listening, provider: configuration.provider.provider,
                 attempt: attempt, onEvent: onEvent)
-            let waiting = await codeWaitSignal?.currentWindow() != nil
             let interval = waiting ? configuration.codeWaitLivenessInterval : configuration.livenessInterval
-            let nextCheck = min(nextLiveness, ContinuousClock.now.advanced(by: interval))
+            let nextCheck = min(
+                nextLiveness, ContinuousClock.now.advanced(by: interval),
+                junkEnabled ? nextJunk : deadline)
             let wake = try await IdleWait.wait(
                 signaled: { try await inbox.next(since: mark) },
                 renewal: ContinuousClock.now.duration(to: min(deadline, nextCheck)),
@@ -464,6 +565,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                     try await watch.done()
                     return .renew
                 }
+                if junkEnabled && ContinuousClock.now >= nextJunk { continue }
                 let events = try await server.noop()
                 let existsCounts = events.compactMap { event -> Int? in
                     if case .exists(let count) = event { return count }
@@ -510,6 +612,7 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         onEvent: @escaping @Sendable (IMAPFeedEvent) async -> Void
     ) async throws {
         var lastCheck = ContinuousClock.now
+        var nextJunk = ContinuousClock.now
         while true {
             try Task.checkCancellation()
             await Self.emitState(
@@ -530,15 +633,25 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                 await onEvent(.notice(GmailNotice.missingValidity))
             }
             let sawIncomplete = try await catchup(
-                server: server, selection: selection, accountID: accountID,
+                server: server, selection: selection,
+                mailbox: configuration.provider.inboxName, role: "inbox", accountID: accountID,
                 handled: &handled, announcedFuture: &announcedFuture,
-                attempt: attempt, synchronizedAt: synchronizedAt,
+                skippedOversized: &attempt.skippedOversized, synchronizedAt: synchronizedAt,
                 yieldToNewMail: { false }, onEvent: onEvent)
             if sawIncomplete && !announcedIncomplete {
                 announcedIncomplete = true
                 await onEvent(.notice(GmailNotice.incomplete))
             }
             if !sawIncomplete { announcedIncomplete = false }
+            let waiting = await codeWaitSignal?.currentWindow() != nil
+            let junkInterval = waiting ? configuration.codeWaitJunkInterval : configuration.junkInterval
+            if waiting {
+                nextJunk = min(nextJunk, ContinuousClock.now.advanced(by: junkInterval))
+            }
+            if await checksJunkFolder(), ContinuousClock.now >= nextJunk {
+                _ = await scanJunk(server: server, accountID: accountID, attempt: attempt, onEvent: onEvent)
+                nextJunk = ContinuousClock.now.advanced(by: junkInterval)
+            }
             attempt.failures = 0
             lastCheck = ContinuousClock.now
             try await sleepForPoll(from: lastCheck)
@@ -558,6 +671,26 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
             if remaining <= .zero { return }
             try await Task.sleep(for: min(remaining, .seconds(1)))
         }
+    }
+
+    /// Diagnostic only: the server's reply text and the token's shape/audience, never the token.
+    private static func logXOAUTH2Failure(_ error: Error, token: String) {
+        var audience = "opaque"
+        let parts = token.split(separator: ".")
+        if parts.count == 3 {
+            var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+")
+                .replacingOccurrences(of: "_", with: "/")
+            while payload.count % 4 != 0 { payload += "=" }
+            if let data = Data(base64Encoded: payload),
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            {
+                audience = "aud=\(json["aud"] ?? "?") scp=\(json["scp"] ?? "?")"
+            }
+        }
+        let reply = String(String(describing: error).prefix(300))
+        logger.notice(
+            "event=xoauth2_failed token_parts=\(parts.count, privacy: .public) \(audience, privacy: .public) reply=\(reply, privacy: .public)"
+        )
     }
 
     private static func isAuthenticationError(_ error: Error) -> Bool {
@@ -698,6 +831,22 @@ private final class Attempt: @unchecked Sendable {
     /// UIDs skipped because a fetch exceeded a known body limit. Survives reconnect
     /// for the same UIDVALIDITY so a hostile literal is not fetched forever.
     var skippedOversized: Set<UInt32> = []
+    let junk = JunkProgress()
+}
+
+private final class JunkProgress {
+    var validity: UInt32?
+    var handled: Set<UInt32> = []
+    var announcedFuture: Set<UInt32> = []
+    var skippedOversized: Set<UInt32> = []
+    var announcedIncomplete = false
+    var announcedMissingValidity = false
+}
+
+private enum JunkMailboxCache: Sendable {
+    case unknown
+    case missing
+    case found(String)
 }
 
 enum GmailFetchLimit {

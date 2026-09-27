@@ -333,6 +333,7 @@ private struct ArrivalView: View {
         }
         .accessibilityLabel(
             accessibilityLabel(for: candidate, sender: sender, link: candidate.loginLink, action: cardAction)
+                + (candidate.isFromJunk ? "，垃圾邮件" : "")
                 + (matchesCurrentSite ? "，匹配当前网站" : "")
         )
         .accessibilityHint(accessibilityHint(for: candidate, action: cardAction))
@@ -418,6 +419,13 @@ private struct ArrivalRow: View {
                         .foregroundStyle(secondaryStyle)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if candidate.isFromJunk {
+                        Text("垃圾邮件")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(secondaryStyle)
+                            .padding(.horizontal, 5)
+                            .background(.fill.tertiary, in: .capsule)
+                    }
                     if matchesCurrentSite {
                         Text("匹配当前网站")
                             .font(.system(size: 9, weight: .medium))

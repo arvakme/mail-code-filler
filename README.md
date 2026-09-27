@@ -39,18 +39,18 @@ iCloud 使用 iCloud 邮箱地址与 Apple App 专用密码，网易邮箱先启
 Outlook / Hotmail / Live / MSN 和支持 IMAP 的 Microsoft 365 使用 Microsoft OAuth 公用客户端，不使用邮箱密码或 client secret。接入前按以下步骤配置自己的 Entra 应用：
 
 1. 在 Microsoft Entra 管理中心进入 **App registrations → New registration**，Supported account types 选择 **Accounts in any organizational directory and personal Microsoft accounts**（`AzureADandPersonalMicrosoftAccount`）。
-2. 在 **Authentication → Add a platform → Mobile and desktop applications** 注册精确回调 `msauth.dev.zhijie.MailCodeFiller://auth`；在 **Advanced settings** 打开 **Allow public client flows = Yes**。macOS App 的 Info.plist 已为两个宿主目标注册 `msauth.dev.zhijie.MailCodeFiller` URL scheme，供 `ASWebAuthenticationSession` 接收回调。
+2. 在 **Authentication → Add a platform → Mobile and desktop applications** 注册 `http://localhost` 和 `msauth.dev.zhijie.MailCodeFiller://auth` 两个回调；在 **Advanced settings** 打开 **Allow public client flows = Yes**。登录默认在系统默认浏览器中打开，App 仅在 `127.0.0.1` 的随机端口接收一次回调，端口无需预先注册；若本机回调无法启动，改用系统登录窗口和后一个回调（可能在 Safari 中打开）。
 3. 在 **API permissions → Add permission → APIs my organization uses → Office 365 Exchange Online → Delegated permissions** 只添加 `IMAP.AccessAsUser.All`。登录请求的 scope 为 `https://outlook.office.com/IMAP.AccessAsUser.All offline_access`；`offline_access` 是 OAuth scope，不是 Exchange API 权限。不要添加 client secret、Graph、`User.Read` 或 `Mail.Send`。
 4. 复制 **Application (client) ID**，将 `Config/Signing.example.xcconfig` 复制为 Git 忽略的 `Config/Signing.local.xcconfig`（如果已有则保留原文件），把 `MAIL_CODE_OUTLOOK_CLIENT_ID = YOUR_OUTLOOK_CLIENT_ID` 改为实际 Client ID，然后运行 `scripts/build.sh` 重新构建。Client ID 是公开标识，不是密码；缺失或留空时“添加邮箱”仍显示 Outlook 项与 README 提示，但禁止授权。
-5. 在 Outlook.com 的 **设置 → 邮件 → 转发和 IMAP** 启用 IMAP。Microsoft 365 租户也须允许 IMAP 与用户同意；组织策略可能要求管理员批准。然后在 App 选择 **Outlook / Hotmail / Microsoft 365**，填写完整邮箱地址，点击 **登录 Microsoft 并授权**。
+5. 在 Outlook.com 的 **设置 → 邮件 → 转发和 IMAP** 启用 IMAP。Microsoft 365 租户也须允许 IMAP 与用户同意；组织策略可能要求管理员批准。然后在 App 选择 **Outlook / Hotmail / Microsoft 365**，填写完整邮箱地址，点击 **登录 Microsoft 并授权**。浏览器显示登录完成后返回 App；可在表单中取消，等待超过 5 分钟也会结束此次登录。
 
-该授权允许 App 通过 IMAP 访问用户有权限的邮箱，权限范围大于验证码读取。App 实际只对 INBOX 执行只读 `EXAMINE` 和有界 `BODY.PEEK`，不会标记已读、修改、删除或发送邮件。IMAP 使用 `outlook.office365.com:993` TLS；access token 仅驻内存，refresh token 按账户单独存本机登录钥匙串，轮换时先保存新 token。令牌被撤销或失效会显示“需要重新登录”，仅在用户主动点击后重新打开授权。移除账户会删除本机令牌，但云端授权需在 Microsoft 账户授权页面或组织 My Apps / 管理员处另行撤销。
+该授权允许 App 通过 IMAP 访问用户有权限的邮箱，权限范围大于验证码读取。App 默认只对 INBOX 执行只读 `EXAMINE` 和有界 `BODY.PEEK`；开启「同时检查垃圾邮件文件夹」后，也只读检查发现的垃圾邮件文件夹。不会标记已读、修改、删除或发送邮件。IMAP 使用 `outlook.office365.com:993` TLS；access token 仅驻内存，refresh token 按账户单独存本机登录钥匙串，轮换时先保存新 token。令牌被撤销或失效会显示“需要重新登录”，仅在用户主动点击后重新打开授权。移除账户会删除本机令牌，但云端授权需在 Microsoft 账户授权页面或组织 My Apps / 管理员处另行撤销。
 
 真实 Outlook.com 和 Microsoft 365 授权、IDLE、静默刷新、暂停恢复及各租户 IMAP 策略尚待用户实机验证。建议发送合成验证码，检查 App 收到、原邮件未读状态不变，并重启测试静默刷新。
 
 - 登录凭据只存本机登录钥匙串；不与 AutoFill 扩展共享，不写明文配置、日志或 iCloud。访问失败明确报错，不降级到文件。
-- 只读 INBOX，不标记已读、移动、删除或发送邮件。IDLE 邮箱使用两条 TLS 连接分别监听变化和抓取，均使用 EXAMINE 与有界 BODY.PEEK，不下载附件。应用专用密码和 QQ 授权码本身的权限比本工具实际执行的读取操作更宽。
-- 启动、重连、邮箱变化和 IDLE 续期时检查最新 30 封元数据，仅处理最近 10 分钟内的邮件，正文按新到旧读取。补查期间收到新推送，会在当前邮件处理完后让新邮件优先，不让它排在整批旧正文后。普通正文与 HTML 共用读取上限，各段独立识别、统一去重；补查窗口、正文限额或解码导致遗漏时显示提示。归档、垃圾箱和其他文件夹不在范围内。
+- 默认只读 INBOX；可在「识别与提示」开启「同时检查垃圾邮件文件夹」，默认关闭。垃圾邮件里的码更可能是钓鱼，候选会显示「垃圾邮件」来源标签。不标记已读、移动、删除或发送邮件。IDLE 邮箱使用两条 TLS 连接分别监听 INBOX 变化和抓取，垃圾邮件检查复用抓取连接，均使用 EXAMINE 与有界 BODY.PEEK，不下载附件。应用专用密码和 QQ 授权码本身的权限比本工具实际执行的读取操作更宽。
+- 启动、重连、邮箱变化和 IDLE 续期时检查 INBOX 最新 30 封元数据，仅处理最近 10 分钟内的邮件，正文按新到旧读取。开启垃圾邮件检查后，优先按 IMAP `\Junk` 标记发现文件夹，按提供方名称回退；普通状态每 60 秒检查一次，等码期间每 4–5 秒检查一次。补查期间收到新推送，会在当前邮件处理完后让新邮件优先，不让它排在整批旧正文后。普通正文与 HTML 共用读取上限，各段独立识别、统一去重；补查窗口、正文限额或解码导致遗漏时显示提示。归档、垃圾箱和其他文件夹不在范围内。
 - 状态区分连接、同步、监听、重连和失败，并显示最近同步完成时间。“正在同步”不代表已经确认没有验证码。菜单可暂停、恢复、更新凭据和移除账户；暂停跨重启保留，唤醒只恢复此前启用的连接。
 - QQ 邮箱无登录的 TLS `CAPABILITY` 检查于 2026-09-23 收到 IDLE，因此优先使用推送。QQ、iCloud 与网易若服务器不通告 IDLE，会使用可取消的有界 NOOP 轮询；默认 QQ 约 10 秒，iCloud/网易约 60 秒，手动等码窗口内缩短到约 5 秒。Gmail 不会静默退回轮询。真实账户行为仍待用户实测。
 - 不执行 Himalaya 密码命令，不依赖其进程。明确验证码在本地识别；可选 Jev 只辅助本地未识别的邮件，不决定输入目标。

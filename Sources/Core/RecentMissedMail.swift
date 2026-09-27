@@ -88,7 +88,7 @@ public enum IMAPMessageRefetchError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .accountMismatch: "账户与邮件不匹配，无法重新读取。"
-        case .invalidMailbox: "只支持重新读取收件箱邮件。"
+        case .invalidMailbox: "只支持重新读取收件箱或垃圾邮件文件夹中的邮件。"
         case .uidValidityChanged: "邮箱标识已变化，无法安全地定位原邮件。"
         case .messageUnavailable: "邮件已移除或无法读取。"
         case .oversized: "邮件正文超过读取上限。"

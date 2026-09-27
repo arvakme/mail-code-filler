@@ -50,6 +50,8 @@ struct ContentView: View {
                     contentHeight = $0
                 }
             }
+            // Scrolling still works; the always-visible system scroll bar looked out of place.
+            .scrollIndicators(.never)
             // MenuBarExtra proposes no height, so a bare ScrollView collapses to zero.
             .frame(width: 420, height: min(max(contentHeight, 1), 660))
 

@@ -17,6 +17,14 @@ struct ScriptMessage: Sendable {
     var declaredOctets: Int? = nil
 }
 
+struct ScriptMailbox: Sendable {
+    let name: String
+    let attributes: String
+    var specialUseAttributes: String? = nil
+    let uidValidity: UInt32
+    var messages: [ScriptMessage]
+}
+
 /// Local IMAP fixture. Listens on 127.0.0.1 only. LOGIN arguments are not stored.
 final class IMAPScriptServer: @unchecked Sendable {
     private let lock = NSLock()
@@ -34,6 +42,7 @@ final class IMAPScriptServer: @unchecked Sendable {
 
     private var uidValidity: UInt32
     private var messages: [ScriptMessage]
+    private var extraMailboxes: [ScriptMailbox]
     private let capabilities: [String]
     private let examineReadOnly: Bool
     private let loginSucceeds: Bool
@@ -54,6 +63,7 @@ final class IMAPScriptServer: @unchecked Sendable {
         password: String,
         uidValidity: UInt32 = 1,
         messages: [ScriptMessage] = [],
+        extraMailboxes: [ScriptMailbox] = [],
         capabilities: [String] = ["IMAP4rev1", "IDLE"],
         examineReadOnly: Bool = true,
         loginSucceeds: Bool = true,
@@ -68,6 +78,7 @@ final class IMAPScriptServer: @unchecked Sendable {
         self.password = password
         self.uidValidity = uidValidity
         self.messages = messages
+        self.extraMailboxes = extraMailboxes
         self.capabilities = capabilities
         self.examineReadOnly = examineReadOnly
         self.loginSucceeds = loginSucceeds
@@ -178,6 +189,16 @@ final class IMAPScriptServer: @unchecked Sendable {
         lock.unlock()
     }
 
+    func replaceExtraMailbox(_ name: String, uidValidity: UInt32, messages: [ScriptMessage]) {
+        lock.withLock {
+            guard let index = extraMailboxes.firstIndex(where: { $0.name == name }) else { return }
+            extraMailboxes[index] = ScriptMailbox(
+                name: name, attributes: extraMailboxes[index].attributes,
+                specialUseAttributes: extraMailboxes[index].specialUseAttributes,
+                uidValidity: uidValidity, messages: messages)
+        }
+    }
+
     var commandLog: [String] {
         lock.lock()
         defer { lock.unlock() }
@@ -264,6 +285,7 @@ final class IMAPScriptServer: @unchecked Sendable {
         var buffer = Data()
         var authenticated = false
         var selected = false
+        var selectedMailbox = "INBOX"
         var selectedMessageCount = 0
         var idleTag: String?
         var xoauthTag: String?
@@ -337,6 +359,7 @@ final class IMAPScriptServer: @unchecked Sendable {
                 if verb == "NOOP", silenceNoop { continue }
                 let response = reply(
                     tag: tag, verb: verb, args: args, selected: &selected,
+                    selectedMailbox: &selectedMailbox,
                     selectedMessageCount: &selectedMessageCount, authenticated: &authenticated)
                 writeAll(fd, response)
                 if verb == "LOGOUT" { return }
@@ -367,6 +390,7 @@ final class IMAPScriptServer: @unchecked Sendable {
 
     private func reply(
         tag: String, verb: String, args: String, selected: inout Bool,
+        selectedMailbox: inout String,
         selectedMessageCount: inout Int, authenticated: inout Bool
     ) -> Data {
         switch verb {
@@ -401,24 +425,42 @@ final class IMAPScriptServer: @unchecked Sendable {
             return Data("\(tag) NO [AUTHENTICATIONFAILED] \(loginFailureText)\r\n".utf8)
         case "ID":
             return Data("* ID NIL\r\n\(tag) OK ID completed\r\n".utf8)
+        case "LIST":
+            let boxes = lock.withLock { extraMailboxes }
+            let requestsSpecialUse = args.uppercased().contains("SPECIAL-USE")
+            let rows =
+                ["* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n"]
+                + boxes.map { box in
+                    let attributes =
+                        requestsSpecialUse
+                        ? (box.specialUseAttributes ?? box.attributes) : box.attributes
+                    return "* LIST (\(attributes)) \"/\" \"\(box.name)\"\r\n"
+                }
+            return Data((rows.joined() + "\(tag) OK LIST completed\r\n").utf8)
         case "EXAMINE":
+            guard let name = quotedTokens(args).first,
+                name.caseInsensitiveCompare("INBOX") == .orderedSame
+                    || lock.withLock({ extraMailboxes.contains { $0.name == name } })
+            else { return Data("\(tag) NO Mailbox unavailable\r\n".utf8) }
             selected = true
+            selectedMailbox = name
             return examineData(
-                tag: tag, readOnly: true, selectedMessageCount: &selectedMessageCount)
+                tag: tag, readOnly: true, mailbox: name, selectedMessageCount: &selectedMessageCount)
         case "SELECT":
             selected = true
             return examineData(
-                tag: tag, readOnly: false, selectedMessageCount: &selectedMessageCount)
+                tag: tag, readOnly: false, mailbox: selectedMailbox,
+                selectedMessageCount: &selectedMessageCount)
         case "UID":
             guard selected else { return Data("\(tag) NO Not selected\r\n".utf8) }
-            return uidData(tag: tag, args: args)
+            return uidData(tag: tag, args: args, mailbox: selectedMailbox)
         case "FETCH":
             guard selected else { return Data("\(tag) NO Not selected\r\n".utf8) }
-            return fetchData(tag: tag, args: args, uidMode: false)
+            return fetchData(tag: tag, args: args, uidMode: false, mailbox: selectedMailbox)
         case "LOGOUT":
             return Data("* BYE\r\n\(tag) OK LOGOUT completed\r\n".utf8)
         case "NOOP":
-            let count = lock.withLock { messages.count }
+            let count = mailboxSnapshot(selectedMailbox).messages.count
             if selected, count != selectedMessageCount {
                 selectedMessageCount = count
                 return Data("* \(count) EXISTS\r\n\(tag) OK NOOP completed\r\n".utf8)
@@ -430,14 +472,13 @@ final class IMAPScriptServer: @unchecked Sendable {
     }
 
     private func examineData(
-        tag: String, readOnly: Bool, selectedMessageCount: inout Int
+        tag: String, readOnly: Bool, mailbox: String, selectedMessageCount: inout Int
     ) -> Data {
-        lock.lock()
-        let count = messages.count
-        let validity = uidValidity
-        let nextUID = (messages.map(\.uid).max() ?? 0) + 1
-        let forced = examineReadOnly
-        lock.unlock()
+        let snapshot = mailboxSnapshot(mailbox)
+        let count = snapshot.messages.count
+        let validity = snapshot.validity
+        let nextUID = (snapshot.messages.map(\.uid).max() ?? 0) + 1
+        let forced = lock.withLock { examineReadOnly }
         selectedMessageCount = count
         let mode = (readOnly && forced) ? "READ-ONLY" : "READ-WRITE"
         let text = """
@@ -452,15 +493,15 @@ final class IMAPScriptServer: @unchecked Sendable {
         return Data(text.utf8)
     }
 
-    private func uidData(tag: String, args: String) -> Data {
+    private func uidData(tag: String, args: String, mailbox: String) -> Data {
         let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
         guard let sub = parts.first?.uppercased() else { return Data("\(tag) BAD\r\n".utf8) }
         let rest = parts.count > 1 ? parts[1] : ""
-        if sub == "FETCH" { return fetchData(tag: tag, args: rest, uidMode: true) }
+        if sub == "FETCH" { return fetchData(tag: tag, args: rest, uidMode: true, mailbox: mailbox) }
         return Data("\(tag) BAD \(sub)\r\n".utf8)
     }
 
-    private func fetchData(tag: String, args: String, uidMode: Bool) -> Data {
+    private func fetchData(tag: String, args: String, uidMode: Bool, mailbox: String) -> Data {
         let seq: String
         let items: String
         if let open = args.firstIndex(of: "("), let close = args.lastIndex(of: ")") {
@@ -470,7 +511,8 @@ final class IMAPScriptServer: @unchecked Sendable {
             return Data("\(tag) BAD FETCH\r\n".utf8)
         }
         lock.lock()
-        let snapshot = messages
+        let snapshot =
+            mailbox == "INBOX" ? messages : extraMailboxes.first { $0.name == mailbox }?.messages ?? []
         let rejectBody = rejectBodyFetch
         lock.unlock()
         let wanted = items.uppercased()
@@ -509,6 +551,15 @@ final class IMAPScriptServer: @unchecked Sendable {
         }
         response.append(Data("\(tag) OK FETCH completed\r\n".utf8))
         return response
+    }
+
+    private func mailboxSnapshot(_ name: String) -> (validity: UInt32, messages: [ScriptMessage]) {
+        lock.withLock {
+            if let box = extraMailboxes.first(where: { $0.name == name }) {
+                return (box.uidValidity, box.messages)
+            }
+            return (uidValidity, messages)
+        }
     }
 
     private func match(_ seq: String, messages: [ScriptMessage], uidMode: Bool) -> [(Int, ScriptMessage)] {

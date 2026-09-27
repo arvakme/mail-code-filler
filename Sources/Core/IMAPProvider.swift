@@ -127,6 +127,17 @@ public enum IMAPProvider: String, CaseIterable, Codable, Sendable {
 
 public struct IMAPProviderDescriptor: Equatable, Sendable {
     public let provider: IMAPProvider
+    /// Compact name for one-line account rows; `displayName` stays the full picker label.
+    public var shortName: String {
+        switch provider {
+        case .gmail: "Gmail"
+        case .qqMail: "QQ 邮箱"
+        case .icloudMail: "iCloud"
+        case .neteaseMail: "网易邮箱"
+        case .outlook: "Outlook"
+        }
+    }
+
     public let displayName: String
     public let host: String
     public let port: Int

@@ -20,6 +20,9 @@ public final class DeliverySettings {
     public var linkCardLevel: LinkCardLevel {
         didSet { preferences.set(linkCardLevel.rawValue, forKey: "link-card-level") }
     }
+    public var checksJunkFolder: Bool {
+        didSet { preferences.set(checksJunkFolder, forKey: "checks-junk-folder") }
+    }
     public var automaticallyCopy: Bool {
         didSet { preferences.set(automaticallyCopy, forKey: "automatically-copy-code") }
     }
@@ -91,6 +94,7 @@ public final class DeliverySettings {
         linkCardLevel =
             LinkCardLevel(rawValue: preferences.string(forKey: "link-card-level") ?? "")
             ?? .signInAndVerification
+        checksJunkFolder = preferences.bool(forKey: "checks-junk-folder")
         automaticallyCopy = preferences.bool(forKey: "automatically-copy-code")
         cardPlacementMode =
             CardPlacementMode(

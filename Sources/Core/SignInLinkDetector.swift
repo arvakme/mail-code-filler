@@ -31,9 +31,11 @@ public struct SignInLink: Equatable, Sendable {
     public let registrableHost: String
     public let purpose: Purpose
 
-    public init(url: URL, purpose: Purpose = .signIn) {
+    /// `url` is what gets opened (tracking and Safe Links wrappers kept intact); `target` is the
+    /// unwrapped destination whose host is shown on the card.
+    public init(url: URL, purpose: Purpose = .signIn, target: URL? = nil) {
         self.url = url
-        host = url.host ?? ""
+        host = (target ?? url).host ?? ""
         registrableHost = Self.registrableHost(host)
         self.purpose = purpose
     }
@@ -195,7 +197,8 @@ public struct SignInLinkDetector: Sendable {
                 emailPurpose == .accountNotice
                 ? .accountNotice : (referencePurpose ?? urlPurpose ?? emailPurpose ?? .signIn)
             ranked.append(
-                RankedLink(link: SignInLink(url: url, purpose: purpose), score: score, order: order))
+                RankedLink(
+                    link: SignInLink(url: url, purpose: purpose, target: target), score: score, order: order))
         }
         return ranked.max { lhs, rhs in
             lhs.score == rhs.score ? lhs.order > rhs.order : lhs.score < rhs.score
@@ -329,6 +332,8 @@ public struct SignInLinkDetector: Sendable {
             || host == "braze.com" || host.hasSuffix(".braze.com")
             || host == "braze.eu" || host.hasSuffix(".braze.eu")
             || host == "customeriomail.com" || host.hasSuffix(".customeriomail.com")
+            // Microsoft Defender Safe Links (Microsoft 365 mailboxes) rewrites every link.
+            || host.hasSuffix(".safelinks.protection.outlook.com")
         guard isTracker else { return url }
 
         let pathParts = components.percentEncodedPath.split(separator: "/")

@@ -11,6 +11,7 @@ struct DeliverySettingsTests {
         defer { preferences.removePersistentDomain(forName: name) }
         let settings = DeliverySettings(preferences: preferences)
         #expect(settings.linkCardLevel == .signInAndVerification)
+        #expect(!settings.checksJunkFolder)
         #expect(settings.linkCardLevel.allows(.signIn))
         #expect(settings.linkCardLevel.allows(.verification))
         #expect(settings.linkCardLevel.allows(.activation))
@@ -40,6 +41,7 @@ struct DeliverySettingsTests {
         settings.automaticallyCopy = true
         settings.cardClickAction = .fill
         settings.linkCardLevel = .includingAccountNotices
+        settings.checksJunkFolder = true
         #expect(settings.linkCardLevel.allows(.accountNotice))
         settings.cardPlacementMode = .followInputCaret
         settings.rememberDraggedPosition = true
@@ -63,6 +65,7 @@ struct DeliverySettingsTests {
         #expect(restored.automaticallyCopy)
         #expect(restored.cardClickAction == .fill)
         #expect(restored.linkCardLevel == .includingAccountNotices)
+        #expect(restored.checksJunkFolder)
         #expect(restored.cardPlacementMode == .followInputCaret)
         #expect(restored.rememberDraggedPosition)
         #expect(restored.allowsScreenshots)

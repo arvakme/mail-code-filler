@@ -179,6 +179,7 @@ struct MissedDetectionSamplesView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollIndicators(.never)
     }
 
     private func loadSelected() async {

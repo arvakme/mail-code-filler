@@ -36,9 +36,9 @@ public struct GmailMissedMailFetcher: IMAPMessageRefetching {
         -> ReceivedMail
     {
         guard login.accountID == message.account else { throw IMAPMessageRefetchError.accountMismatch }
-        guard message.mailbox.caseInsensitiveCompare("INBOX") == .orderedSame else {
-            throw IMAPMessageRefetchError.invalidMailbox
-        }
+        guard !message.mailbox.isEmpty, !message.mailbox.contains("\r"),
+            !message.mailbox.contains("\n")
+        else { throw IMAPMessageRefetchError.invalidMailbox }
         let valid = try IMAPAccountCredentials.validated(
             provider: login.provider, email: login.email, secret: login.secret)
         let host = try hostOverride ?? valid.provider.imapHost(for: valid.email)
@@ -82,7 +82,13 @@ public struct GmailMissedMailFetcher: IMAPMessageRefetching {
                     }
                 }
             }
-            let selection = try await server.examineMailbox("INBOX")
+            if message.mailbox.caseInsensitiveCompare("INBOX") != .orderedSame {
+                guard
+                    try await JunkMailboxDiscovery.discover(on: server, provider: valid.provider)
+                        == message.mailbox
+                else { throw IMAPMessageRefetchError.invalidMailbox }
+            }
+            let selection = try await server.examineMailbox(message.mailbox)
             guard selection.isReadOnly else { throw IMAPMessageRefetchError.invalidMailbox }
             guard message.uidValidity != 0, selection.uidValidity.value == message.uidValidity else {
                 throw IMAPMessageRefetchError.uidValidityChanged
@@ -120,7 +126,8 @@ public struct GmailMissedMailFetcher: IMAPMessageRefetching {
             else { throw IMAPMessageRefetchError.noText }
             let result = ReceivedMail(
                 id: message, subject: decoded.subject, bodies: decoded.bodies, links: decoded.links,
-                sender: decoded.sender, receivedAt: info.internalDate ?? Date())
+                sender: decoded.sender, receivedAt: info.internalDate ?? Date(),
+                isFromJunk: message.mailbox.caseInsensitiveCompare("INBOX") != .orderedSame)
             try? await server.disconnect()
             return result
         } catch {

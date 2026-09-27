@@ -10,6 +10,7 @@ struct IMAPAccountFormView: View {
     @State private var secret = ""
     @State private var error: String?
     @State private var isSaving = false
+    @State private var signInTask: Task<Void, Never>?
 
     private var descriptor: IMAPProviderDescriptor { provider.descriptor }
 
@@ -53,40 +54,64 @@ struct IMAPAccountFormView: View {
             Text(descriptor.credentialHelpText)
                 .font(.callout).foregroundStyle(.secondary)
             if provider == .outlook {
+                Text("将在默认浏览器中打开 Microsoft 登录页")
+                    .font(.callout).foregroundStyle(.secondary)
                 Text(
                     "首次使用：在 Microsoft Entra 管理中心注册支持个人 Microsoft 账户的公用客户端，将 Client ID 写入本机 Config/Signing.local.xcconfig 的 MAIL_CODE_OUTLOOK_CLIENT_ID 并重新构建。Client ID 不是密码。"
                 )
                 .font(.callout).foregroundStyle(.secondary)
                 Text(
-                    "授权允许本 App 通过 IMAP 访问你有权限的邮箱，范围大于验证码读取。App 实际只对 INBOX 执行只读 EXAMINE/BODY.PEEK，在本机识别验证码，不标记已读、不修改、删除或发送邮件；登录令牌保存在本机钥匙串。"
+                    "授权允许本 App 通过 IMAP 访问你有权限的邮箱，范围大于验证码读取。App 默认只对 INBOX 执行只读 EXAMINE/BODY.PEEK；开启垃圾邮件检查后也会只读检查垃圾邮件文件夹。在本机识别验证码，不标记已读、不修改、删除或发送邮件；登录令牌保存在本机钥匙串。"
                 )
                 .font(.caption).foregroundStyle(.secondary)
+                if let notice = model.microsoftSignInNotice {
+                    Text(notice).font(.callout).foregroundStyle(.orange)
+                }
             } else {
                 Link("打开\(descriptor.displayName)设置说明", destination: descriptor.credentialHelpURL)
             }
             Label("登录凭据只保存在本机登录钥匙串；不与 AutoFill 扩展共享。", systemImage: "lock.shield")
                 .font(.callout)
-            Text("通过加密连接只读 INBOX，不改变邮件已读状态。连接后会检查最近 10 分钟邮件；退出 App 时停止监听。")
-                .font(.caption).foregroundStyle(.secondary)
+            let checkedFolders = model.settings.checksJunkFolder ? "INBOX 和垃圾邮件文件夹" : "INBOX"
+            Text(
+                "通过加密连接只读 \(checkedFolders)，不改变邮件已读状态。"
+                    + "连接后会检查最近 10 分钟邮件；退出 App 时停止监听。"
+            )
+            .font(.caption).foregroundStyle(.secondary)
+            if provider == .outlook && model.microsoftSignInStatus == .waiting {
+                Label("正在默认浏览器中等待 Microsoft 登录，可以先关闭这个面板。", systemImage: "safari")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout)
                     .accessibilityIdentifier("imap-account-setup-error")
             }
             HStack {
                 Button("取消") {
+                    signInTask?.cancel()
+                    model.cancelMicrosoftSignIn()
                     secret = ""
                     onBack()
                 }
                 .keyboardShortcut(.cancelAction)
                 Spacer()
+                if provider == .outlook && model.microsoftSignInStatus == .waiting {
+                    Button("取消登录") { model.cancelMicrosoftSignIn() }
+                }
                 Button(provider == .outlook ? "登录 Microsoft 并授权" : "保存并连接") {
-                    Task { await save() }
+                    if provider == .outlook {
+                        error = nil
+                        model.startMicrosoftSignIn(email: email)
+                    } else {
+                        signInTask = Task { await save() }
+                    }
                 }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(
                     email.isEmpty || (provider != .outlook && secret.isEmpty)
-                        || (provider == .outlook && !model.isOutlookConfigured) || isSaving)
+                        || (provider == .outlook && !model.isOutlookConfigured) || isSaving
+                        || (provider == .outlook && model.microsoftSignInStatus == .waiting))
             }
         }
         .padding(24)
@@ -95,21 +120,35 @@ struct IMAPAccountFormView: View {
             provider = existingAccount?.provider ?? .gmail
             email = existingAccount?.email ?? ""
         }
-        .onDisappear { secret = "" }
+        .onChange(of: model.microsoftSignInStatus, initial: true) { _, status in
+            switch status {
+            case .succeeded:
+                model.acknowledgeMicrosoftSignIn()
+                onBack()
+            case .failed(let message):
+                error = message
+                model.acknowledgeMicrosoftSignIn()
+            case .idle, .waiting:
+                break
+            }
+        }
+        .onDisappear {
+            // A Microsoft sign-in keeps running while the panel is closed; see AppModel.
+            signInTask?.cancel()
+            secret = ""
+        }
     }
 
     private func save() async {
         isSaving = true
         defer { isSaving = false }
+        error = nil
         do {
-            if provider == .outlook {
-                try await model.connectMicrosoftAccount(email: email)
-            } else {
-                try await model.connectAccount(provider: provider, email: email, secret: secret)
-            }
+            try await model.connectAccount(provider: provider, email: email, secret: secret)
             secret = ""
             onBack()
         } catch {
+            if Task.isCancelled || error is CancellationError { return }
             self.error = (error as? LocalizedError)?.errorDescription ?? "保存失败，请重试。"
         }
     }
@@ -158,8 +197,10 @@ private struct IMAPAccountRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
-                Label(descriptor.displayName, systemImage: descriptor.iconName)
+                Label(descriptor.shortName, systemImage: descriptor.iconName)
                     .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .fixedSize()
                 Text(account.email)
                     .font(.caption)
                     .foregroundStyle(.secondary)

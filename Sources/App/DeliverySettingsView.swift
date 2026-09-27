@@ -29,6 +29,10 @@ struct DeliverySettingsView: View {
             }
             VStack(alignment: .leading, spacing: 12) {
                 Label("到码提示", systemImage: "bell.badge").font(.headline)
+                Toggle("同时检查垃圾邮件文件夹", isOn: $settings.checksJunkFolder)
+                    .accessibilityIdentifier("checks-junk-folder")
+                Text("垃圾邮件里的码更可能是钓鱼，卡片会标出来源。")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("提示出现位置", selection: $settings.cardPlacementMode) {
                     Text("跟随鼠标").tag(CardPlacementMode.followMouse)
                     Text("跟随输入光标").tag(CardPlacementMode.followInputCaret)
