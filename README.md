@@ -4,6 +4,24 @@ Swift 原生 macOS 邮箱验证码菜单栏工具，支持 Gmail、QQ、iCloud�
 
 这些邮箱可以同时监听。Outlook/OAuth 已实现，仍待真实 Microsoft 账户授权与收信验收。真实新信、未读状态、各提供商实际账户与睡眠恢复仍需实机验收；离线试用不能代替真实收信。目标和后续路线见 [PLAN.md](PLAN.md)。
 
+## 开源说明
+
+本项目采用 [MIT License](LICENSE)，Copyright (c) 2026 zhijie ma。品牌名称和商标归各自所有者；品牌图像不随本仓库或公开发布版本分发，也不表示认证、合作或背书。目录保留发件域、颜色及官方图标来源元数据，默认头像使用品牌颜色和首字母。详见 [NOTICE](NOTICE)。
+
+个人本地构建可自行从记录的品牌官网或 Apple artwork CDN 获取图标：
+
+```sh
+python3 -m venv build/sender-icons-venv
+build/sender-icons-venv/bin/python -m pip install -r scripts/requirements-sender-icons.txt
+build/sender-icons-venv/bin/python scripts/fetch-sender-icons.py
+build/sender-icons-venv/bin/python scripts/validate-sender-brands.py
+scripts/build.sh
+```
+
+生成的 `Sources/App/Assets.xcassets/Sender*.imageset` 已被 Git 忽略，仅供个人本地构建。可用重复的 `--only "品牌名"` 参数只生成所选品牌；`--check-only` 只检查来源，不写文件。脚本不改写 `sender-brands.json`，重复运行会覆盖同名本地图标；来源不可用时报告错误，App 继续使用首字母。默认 `scripts/build.sh` 不下载图标，Swift 包依赖缓存就绪后可离线构建。制作公开发布版本前应移除本机生成的 Sender imageset。
+
+Outlook Client ID 是公用客户端的公开标识，不是密码；每位使用者在本机 `Config/Signing.local.xcconfig` 中配置自己的值。该文件被 Git 忽略，实际 Client ID 不包含在仓库中；仓库仅提供 `Config/Signing.example.xcconfig` 占位示例。
+
 ## 构建与签名
 
 需要 macOS 26+、Xcode、XcodeGen 和 Python 3；当前编译环境为 macOS 27 / Xcode 27、Apple Silicon。首次构建需要联网。IMAP/MIME 使用 SwiftMail 1.12.0（BSD-2-Clause）；标准库没有完整客户端。SwiftLog 关闭可能包含邮件内容的协议日志。SPM 和 Xcode 共用根目录的版本锁定。
@@ -66,7 +84,7 @@ Outlook / Hotmail / Live / MSN 和支持 IMAP 的 Microsoft 365 使用 Microsoft
 
 - 登录凭据只存本机登录钥匙串；不与 AutoFill 扩展共享，不写明文配置、日志或 iCloud。访问失败明确报错，不降级到文件。
 - 默认只读 INBOX；可在「识别与提示」开启「同时检查垃圾邮件文件夹」，默认关闭。垃圾邮件里的码更可能是钓鱼，候选会显示「垃圾邮件」来源标签。不标记已读、移动、删除或发送邮件。IDLE 邮箱使用两条 TLS 连接分别监听 INBOX 变化和抓取，垃圾邮件检查复用抓取连接，均使用 EXAMINE 与有界 BODY.PEEK，不下载附件。应用专用密码和 QQ 授权码本身的权限比本工具实际执行的读取操作更宽。
-- 启动、重连、邮箱变化和 IDLE 续期时检查 INBOX 最新 30 封元数据，仅处理最近 10 分钟内的邮件，正文按新到旧读取。开启垃圾邮件检查后，优先按 IMAP `\Junk` 标记发现文件夹，按提供方名称回退；普通状态每 60 秒检查一次，等码期间每 4–5 秒检查一次。补查期间收到新推送，会在当前邮件处理完后让新邮件优先，不让它排在整批旧正文后。普通正文与 HTML 共用读取上限，各段独立识别、统一去重；补查窗口、正文限额或解码导致遗漏时显示提示。归档、垃圾箱和其他文件夹不在范围内。
+- 启动、重连、邮箱变化和 IDLE 续期时检查 INBOX 最新 30 封元数据，仅处理最近 10 分钟内的邮件，正文按新到旧读取。开启垃圾邮件检查后，优先按 IMAP `\Junk` 标记发现文件夹，按提供方名称回退；普通状态每 60 秒检查一次，等码期间每 4 至 5 秒检查一次。补查期间收到新推送，会在当前邮件处理完后让新邮件优先，不让它排在整批旧正文后。普通正文与 HTML 共用读取上限，各段独立识别、统一去重；补查窗口、正文限额或解码导致遗漏时显示提示。归档、垃圾箱和其他文件夹不在范围内。
 - 状态区分连接、同步、监听、重连和失败，并显示最近同步完成时间。“正在同步”不代表已经确认没有验证码。菜单可暂停、恢复、更新凭据和移除账户；暂停跨重启保留，唤醒只恢复此前启用的连接。
 - QQ 邮箱无登录的 TLS `CAPABILITY` 检查于 2026-09-23 收到 IDLE，因此优先使用推送。QQ、iCloud 与网易若服务器不通告 IDLE，会使用可取消的有界 NOOP 轮询；默认 QQ 约 10 秒，iCloud/网易约 60 秒，手动等码窗口内缩短到约 5 秒。Gmail 不会静默退回轮询。真实账户行为仍待用户实测。
 - 不执行 Himalaya 密码命令，不依赖其进程。明确验证码在本地识别；可选 Jev 只辅助本地未识别的邮件，不决定输入目标。
@@ -89,17 +107,17 @@ log show --predicate 'subsystem == "dev.zhijie.MailCodeFiller"'
 
 目录 `Sources/Core/Resources/sender-brands.json` 维护 112 个服务的精确发件域、已知官方发信子域、颜色来源、图标来源和复核状态。品牌只按真实 From 的完整域名匹配；不把 `gmail.com`、`qq.com`、`163.com`、`outlook.com`、`icloud.com` 等个人邮箱服务域名映射成品牌头像。显示名不会触发品牌识别，未列出的子域也不会自动继承主域品牌。
 
-目前 78 个图标来自 Apple iTunes Search/Lookup API 的官方 App Store 应用，20 个来自品牌官网图标或站点品牌标记；没有合格官网图像的 14 个服务使用首字母。数据逐项记录 App Store 的 track ID、bundle ID、seller、国家、App Store 页面和 artwork URL，或官网图像 URL、页面与原图尺寸。`scripts/fetch-sender-icons.py` 可重新抓取，依赖见 `scripts/requirements-sender-icons.txt`；运行时不联网。它将原图裁为正方形并生成 32/64/96px PNG；透明官网图标会先合成到不透明白底，以便在浅色和深色外观中辨认。App Store 与官网图标保留原色；界面按连续圆角矩形裁切并加细描边，不再使用 Simple Icons 单色重着色。头像回退时使用已记录的官方颜色；Canva 和中国移动没有可核实的单一 HEX 主色，原因保存在 `colorMissingReason`。
+目录记录了 78 个官方 App Store 应用的 artwork 来源和 20 个品牌官网图标或站点品牌标记来源；没有合格官网图像的 14 个服务只使用首字母。数据逐项记录 App Store 的 track ID、bundle ID、seller、国家、App Store 页面和 artwork URL，或官网图像 URL、页面与原图尺寸。这些图像不包含在仓库中，本地生成步骤见「开源说明」；运行时不联网。抓取脚本将原图裁为正方形并生成 32/64/96px PNG；透明官网图标会先合成到不透明白底，以便在浅色和深色外观中辨认。本地图标保留原色；界面按连续圆角矩形裁切并加细描边。图标缺失时使用已记录的官方颜色和首字母；Canva 和中国移动没有可核实的单一 HEX 主色，原因保存在 `colorMissingReason`。
 
 图标目录中的 `seasonalCheckedAt` 记录每行完成促销角标和季节性图案检查的日期；校验器会打印 `possibleSeasonalWarning` 中仍需复核的条目。官网只公布较小触控图标时，目录会记录尺寸及质量例外；改用官网横向品牌图时，会记录取标裁切中心。
 
-每个图标数据行都记录 `iconSource`、`simpleIconsVersion`、`license` 和 `guidelinesURL`。当前官方图片的 `simpleIconsVersion` 为 `none`；`license: "none"` 表示来源没有提供逐图 SPDX 许可标记，不代表该图案属于公有领域或获准任意再发布。品牌名称、图案与商标归各自所有者；这些图标仅用于识别邮件发件方，不表示认证、合作或背书。`publicReleaseReviewed` 默认是 `false`，校验器会列出全部待复核条目；**公开发布前需逐项复核商标使用**。运行 `python3 scripts/validate-sender-brands.py` 可校验目录、邮箱域名排除规则、来源元数据和全部 PNG 尺寸；加 `--list-unreviewed` 可单独列出尚未复核的品牌。
+每个图标数据行都记录 `iconSource`、`simpleIconsVersion`、`license` 和 `guidelinesURL`。当前官方图片的 `simpleIconsVersion` 为 `none`；`license: "none"` 表示来源没有提供逐图 SPDX 许可标记，不代表该图案属于公有领域或获准任意再发布，MIT 许可不适用于这些第三方商标或图像。`publicReleaseReviewed` 默认是 `false`，校验器会列出仍需复核使用条件的条目。运行 `python3 scripts/validate-sender-brands.py` 可校验目录、邮箱域名排除规则、来源元数据和已存在的本地 PNG 尺寸；所有图标缺失时也可通过。加 `--list-unreviewed` 可单独列出尚未复核的品牌。
 
 卡片使用透明 `NSHostingView` 直接作为 panel 内容，整个堆叠共用单个 `.glassEffect(.regular, in: .rect(cornerRadius: 16))`；行内不额外加玻璃或背景，卡片外留有 24 pt 透明边距，标题栏可拖动。文字使用系统主、次级颜色，卡片跟随系统外观与玻璃辅助功能设置，不固定浅色或深色外观。窗口不加额外阴影。
 
 “提示出现位置”默认是 **跟随鼠标**：卡片优先出现在指针右下方，避开指针；靠近屏幕边缘时会换边并限制在可见区域内。也可选 **跟随输入光标**，优先使用插入点，其次小型输入框，找不到时使用鼠标位置。拖动卡片标题栏可移动提示；“记住拖动后的位置”默认关闭。开启后按显示器记住位置，后续在该屏幕上的提示优先使用；显示器不可用或位置不再可见时退回所选位置模式。关闭开关后只影响当前卡片，已有位置保留；“重置位置”清除所有显示器记录。
 
-“允许截图和录屏看到验证码提示”默认关闭。关闭时到码卡片及可选 AutoFill 热键填入面板不出现在系统捕获画面；开启后系统截图、录屏或屏幕共享可能记录验证码。此设置只改变捕获可见性，不改变卡片内容。卡片自动关闭时间可设 **5–300 秒**，新时长用于下一次到码提示，退出后保留。“点击验证码卡片时”默认为“只复制”；也可选“填入当前输入框（需要辅助功能）”。选择的行为退出后保留，卡片按设置显示“复制”或“填入”。
+“允许截图和录屏看到验证码提示”默认关闭。关闭时到码卡片及可选 AutoFill 热键填入面板不出现在系统捕获画面；开启后系统截图、录屏或屏幕共享可能记录验证码。此设置只改变捕获可见性，不改变卡片内容。卡片自动关闭时间可设 **5 至 300 秒**，新时长用于下一次到码提示，退出后保留。“点击验证码卡片时”默认为“只复制”；也可选“填入当前输入框（需要辅助功能）”。选择的行为退出后保留，卡片按设置显示“复制”或“填入”。
 
 邮件有明确的登录、邮箱验证、账号激活或账号安全提醒意图，且实际目标包含一次性凭据时，HTTPS 链接才作为候选。已知邮件追踪地址会在本地解析可恢复的目标用于判断；点击时仍把邮件中的原链接交给系统默认浏览器，不会自动打开或复制。普通网站首页、登录页和服务通知页脚不算一次性链接；密码重置邮件不纳入。设置「登录链接提示范围」默认「仅登录与验证」，显示登录、邮箱验证和账号激活链接；选择「包括账号安全提醒」后，新设备登录、异常活动等安全提醒也会进入卡片和待用列表。未选范围的链接不会入列。卡片按用途显示「打开登录链接」「打开验证链接」「打开激活链接」或「查看账号安全提醒」。链接只在内存保留，最多 10 分钟，不会进入 AutoFill 验证码列表。
 

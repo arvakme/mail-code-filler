@@ -1,22 +1,24 @@
-Sender icon assets
-==================
+Sender brands and optional local artwork
+=======================================
 
-The sender avatar catalog contains original-color raster app artwork returned
-by Apple's public iTunes Search/Lookup API and first-party touch icons/favicons
-from the brands' official websites. Per-brand source metadata, including App
-Store track ID, bundle ID, seller, country, fetched artwork URL, source pixel
-dimensions, website URLs, license field, and guidelines URL, is stored in
-Sources/Core/Resources/sender-brands.json. Ninety-three entries use App Store
-artwork, seven use first-party website icons, and twelve use generated initial
-monograms because no qualifying official raster icon was verified.
+Mail Code Filler is licensed under the MIT License; see LICENSE.
 
-The `license: "none"` value means the source did not provide a per-image SPDX
-license identifier. It does not grant reproduction rights or put an image in
-the public domain. The images, brand names, and marks remain the property of
-their respective owners. They are bundled only to identify the source of an
-email sender and do not indicate authentication, sponsorship, affiliation, or
-endorsement.
+Brand names and trademarks belong to their respective owners. No third-party
+brand artwork is distributed in this repository or its public releases. The
+default app uses brand-colored initial monograms when local artwork is absent.
+Brand identification does not imply authentication, sponsorship, affiliation,
+or endorsement.
 
-Every brand record defaults to `publicReleaseReviewed: false`. Review the
-trademark use and source terms for each individual mark before public release;
-the catalog validator lists all records that still require that review.
+Sources/Core/Resources/sender-brands.json records sender domains, colors, and
+official source metadata for optional personal builds: Apple App Store artwork
+URLs and first-party website icon URLs, with source dimensions and review notes.
+scripts/fetch-sender-icons.py can generate local, Git-ignored Sender imagesets
+from those recorded sources. It does not change the source catalog. Follow the
+README local-build instructions and the relevant owners' terms; do not include
+these locally generated images in public releases.
+
+The catalog's `license: "none"` means that no per-image SPDX license identifier
+was supplied. It does not grant reproduction rights or put an image in the
+public domain. The project's MIT License grants no rights to third-party
+trademarks or artwork. `publicReleaseReviewed: false` and any seasonal-artwork
+warnings remain source-review metadata, not permission to redistribute images.

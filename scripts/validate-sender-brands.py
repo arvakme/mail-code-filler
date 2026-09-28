@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate sender catalog provenance and normalized official avatar assets."""
+"""Validate sender catalog provenance and any optional local avatar assets."""
 
 from __future__ import annotations
 
@@ -172,7 +172,7 @@ def validate() -> tuple[list[str], list[dict[str, object]], list[dict[str, objec
         if source not in {"app-store", "touch-icon"}:
             errors.append(f"{label}: iconSource must be app-store, touch-icon, or monogram.")
             continue
-        if not isinstance(asset_name, str) or not asset_name.startswith("Sender"):
+        if not isinstance(asset_name, str) or not re.fullmatch(r"Sender[A-Za-z0-9]+", asset_name):
             errors.append(f"{label}: invalid iconAssetName {asset_name!r}.")
             continue
         referenced_assets.add(asset_name)
@@ -239,13 +239,26 @@ def validate() -> tuple[list[str], list[dict[str, object]], list[dict[str, objec
                 errors.append(f"{label}: touch icon requires its first-party HTML page URL.")
 
         imageset = ASSETS / f"{asset_name}.imageset"
+        if not imageset.exists():
+            continue
         contents_path = imageset / "Contents.json"
         try:
             contents = json.loads(contents_path.read_text(encoding="utf-8"))
+            if not isinstance(contents, dict):
+                raise ValueError("Contents.json must be an object")
             entries = contents.get("images", [])
+            if not isinstance(entries, list) or any(not isinstance(image, dict) for image in entries):
+                raise ValueError("Contents.json images must be an array of objects")
+            if any(
+                not isinstance(image.get("scale"), str) or not isinstance(image.get("filename"), str)
+                for image in entries
+            ):
+                raise ValueError("PNG entries must have string scale and filename values")
             by_scale = {image.get("scale"): image.get("filename") for image in entries}
-            if set(by_scale) != set(PNG_SCALES):
+            if len(entries) != len(PNG_SCALES) or set(by_scale) != set(PNG_SCALES):
                 errors.append(f"{label}: Contents.json must include exactly the 1x, 2x and 3x PNG scales.")
+            if any(image.get("idiom") != "universal" for image in entries):
+                errors.append(f"{label}: PNG entries must use the universal idiom.")
             for scale, (filename, pixels) in PNG_SCALES.items():
                 if by_scale.get(scale) != filename:
                     errors.append(f"{label}: {scale} must reference {filename}.")
@@ -259,8 +272,6 @@ def validate() -> tuple[list[str], list[dict[str, object]], list[dict[str, objec
             errors.append(f"{label}: incomplete or invalid PNG asset {asset_name}: {error}.")
 
     on_disk_assets = {path.name.removesuffix(".imageset") for path in ASSETS.glob("Sender*.imageset")}
-    for missing in sorted(referenced_assets - on_disk_assets):
-        errors.append(f"Mapped icon asset does not exist: {missing}.")
     for unused in sorted(on_disk_assets - referenced_assets):
         errors.append(f"Unmapped sender icon asset has no catalog source record: {unused}.")
     return errors, unreviewed, seasonal_warnings
@@ -295,7 +306,7 @@ def main() -> int:
     if not args.list_unreviewed:
         missing_colors = [row["name"] for row in brands if row.get("colorHex") is None]
         print("Brands without sourced primary color: " + (", ".join(missing_colors) or "none"))
-        print("Sender brand catalog and official raster assets are valid.")
+        print("Sender brand catalog and any optional local raster assets are valid.")
     return 0
 
 

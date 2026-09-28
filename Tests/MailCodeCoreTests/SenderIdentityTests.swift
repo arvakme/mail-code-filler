@@ -107,8 +107,7 @@ struct SenderIdentityTests {
         #expect(unlistedGoogleSubdomain.monogram == "A")
     }
 
-    @Test func bundledBrandDataMapsEveryIconToNormalizedRasterAssets() {
-        #expect(CommonSender.brandRecords.count >= 100)
+    @Test func localBrandIconsAreOptionalAndUseNormalizedRasterAssets() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -118,14 +117,23 @@ struct SenderIdentityTests {
             guard let asset = record.iconAssetName else { return nil }
             return (record.name, asset)
         }
-        #expect(iconRecords.count >= 90)
         for (brand, asset) in iconRecords {
             let imageset = catalogRoot.appendingPathComponent("\(asset).imageset")
+            guard FileManager.default.fileExists(atPath: imageset.path) else { continue }
+            let contents = try #require(
+                try JSONSerialization.jsonObject(
+                    with: Data(contentsOf: imageset.appendingPathComponent("Contents.json")))
+                    as? [String: Any])
+            let images = try #require(contents["images"] as? [[String: String]])
+            #expect(images.count == 3, "Invalid PNG scale count for \(brand): \(asset)")
             #expect(
-                FileManager.default.fileExists(atPath: imageset.path), "Missing icon for \(brand): \(asset)")
-            #expect(
-                FileManager.default.fileExists(atPath: imageset.appendingPathComponent("Contents.json").path))
+                Set(images.compactMap { $0["scale"] }) == Set(["1x", "2x", "3x"]),
+                "Invalid PNG scales for \(brand): \(asset)")
             for scale in ["1x", "2x", "3x"] {
+                #expect(
+                    images.contains(["filename": "sender-\(scale).png", "idiom": "universal", "scale": scale]
+                    ),
+                    "Invalid \(scale) PNG mapping for \(brand): \(asset)")
                 #expect(
                     FileManager.default.fileExists(
                         atPath: imageset.appendingPathComponent("sender-\(scale).png").path),

@@ -1,3 +1,4 @@
+import AppKit
 import MailCodeCore
 import SwiftUI
 
@@ -134,7 +135,7 @@ struct SenderAvatar: View {
 
     var body: some View {
         Group {
-            if let asset = identity.iconAssetName {
+            if let asset = identity.iconAssetName, NSImage(named: NSImage.Name(asset)) != nil {
                 Image(asset)
                     .resizable()
                     .interpolation(.high)

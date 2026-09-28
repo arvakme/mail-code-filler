@@ -6,3 +6,5 @@ Config/Signing.local.xcconfig
 .DS_Store
 __pycache__/
 *.pyc
+# Optional brand artwork generated only for personal local builds.
+/Sources/App/Assets.xcassets/Sender*.imageset/
