@@ -50,6 +50,26 @@ public enum MicrosoftOAuth {
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// Every account name the ID token reports (email, sign-in name, UPN), for IMAP login retries.
+    public static func signedInNames(idToken: String) -> [String] {
+        let parts = idToken.split(separator: ".")
+        guard parts.count == 3 else { return [] }
+        var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while payload.count % 4 != 0 { payload += "=" }
+        guard let data = Data(base64Encoded: payload),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [] }
+        var names: [String] = []
+        for key in ["email", "preferred_username", "upn", "unique_name"] {
+            if let raw = json[key] as? String {
+                let name = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if name.contains("@"), !names.contains(name) { names.append(name) }
+            }
+        }
+        return names
+    }
+
     public static func clientID(bundle: Bundle = .main) -> String? {
         let value =
             (bundle.object(forInfoDictionaryKey: "MailCodeOutlookClientID") as? String)?
@@ -288,6 +308,14 @@ public actor MicrosoftOAuthTokenManager: MicrosoftAccessTokenProviding {
         {
             differentSignIn = signedIn
         }
+        if let expectedEmail {
+            var others: [String] = []
+            if let idToken = token.idToken {
+                others = MicrosoftOAuth.signedInNames(idToken: idToken)
+                    .filter { $0 != expectedEmail.lowercased() }
+            }
+            MicrosoftSignInAlias.save(others, accountID: accountID)
+        }
         guard let refresh = token.refreshToken, !refresh.isEmpty else {
             throw MicrosoftOAuthError.missingRefreshToken
         }
@@ -351,5 +379,24 @@ public actor MicrosoftOAuthTokenManager: MicrosoftAccessTokenProviding {
         refreshGeneration[accountID] = nil
         try store.remove(accountID: accountID)
         accessTokens[accountID] = nil
+    }
+}
+
+/// The account name Microsoft reported at sign-in when it differs from the mailbox address the
+/// user typed (an alias of the same account). Some Outlook.com mailboxes only accept the account's
+/// sign-in name as the XOAUTH2 user. Not a secret; kept in the app's preferences.
+public enum MicrosoftSignInAlias {
+    private static func key(_ accountID: String) -> String { "outlook-signin-alias.\(accountID)" }
+
+    public static func load(accountID: String, defaults: UserDefaults = .standard) -> [String] {
+        defaults.stringArray(forKey: key(accountID)) ?? []
+    }
+
+    public static func save(_ aliases: [String], accountID: String, defaults: UserDefaults = .standard) {
+        if aliases.isEmpty {
+            defaults.removeObject(forKey: key(accountID))
+        } else {
+            defaults.set(aliases, forKey: key(accountID))
+        }
     }
 }

@@ -126,16 +126,39 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
                 guard let microsoftTokens else { throw MicrosoftOAuthError.missingClientID }
                 let token = try await microsoftTokens.accessToken(
                     accountID: credentials.accountID, forceRefresh: false)
+                var loginName = credentials.email
                 do {
-                    try await server.authenticateXOAUTH2(email: credentials.email, accessToken: token)
+                    try await server.authenticateXOAUTH2(email: loginName, accessToken: token)
                 } catch {
-                    Self.logXOAUTH2Failure(error, token: token)
+                    Self.logXOAUTH2Failure(error)
                     guard Self.isAuthenticationError(error) else { throw error }
                     let refreshed = try await microsoftTokens.accessToken(
                         accountID: credentials.accountID, forceRefresh: true)
-                    try await server.authenticateXOAUTH2(email: credentials.email, accessToken: refreshed)
+                    do {
+                        try await server.authenticateXOAUTH2(email: loginName, accessToken: refreshed)
+                    } catch {
+                        // Outlook.com can reject an alias with "authenticated but not connected";
+                        // retry once with the account name Microsoft reported at sign-in.
+                        guard Self.isAuthenticationError(error) else { throw error }
+                        var lastError = error
+                        var succeeded = false
+                        for alias in MicrosoftSignInAlias.load(accountID: credentials.accountID)
+                        where alias != loginName {
+                            do {
+                                try await server.authenticateXOAUTH2(email: alias, accessToken: refreshed)
+                                loginName = alias
+                                succeeded = true
+                                Self.logger.notice("event=xoauth2_alias_login_succeeded")
+                                break
+                            } catch {
+                                Self.logXOAUTH2Failure(error)
+                                lastError = error
+                            }
+                        }
+                        if !succeeded { throw lastError }
+                    }
                 }
-                await server.setXOAUTH2AccessTokenProvider(email: credentials.email) {
+                await server.setXOAUTH2AccessTokenProvider(email: loginName) {
                     try await microsoftTokens.accessToken(
                         accountID: credentials.accountID, forceRefresh: false)
                 }
@@ -673,24 +696,14 @@ public final class IMAPAccountFeed: IMAPFeed, @unchecked Sendable {
         }
     }
 
-    /// Diagnostic only: the server's reply text and the token's shape/audience, never the token.
-    private static func logXOAUTH2Failure(_ error: Error, token: String) {
-        var audience = "opaque"
-        let parts = token.split(separator: ".")
-        if parts.count == 3 {
-            var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+")
-                .replacingOccurrences(of: "_", with: "/")
-            while payload.count % 4 != 0 { payload += "=" }
-            if let data = Data(base64Encoded: payload),
-                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            {
-                audience = "aud=\(json["aud"] ?? "?") scp=\(json["scp"] ?? "?")"
-            }
-        }
-        let reply = String(String(describing: error).prefix(300))
-        logger.notice(
-            "event=xoauth2_failed token_parts=\(parts.count, privacy: .public) \(audience, privacy: .public) reply=\(reply, privacy: .public)"
-        )
+    /// Logs only a fixed category for a rejected XOAUTH2 login; never the reply text or token.
+    private static func logXOAUTH2Failure(_ error: Error) {
+        let reply = String(describing: error).lowercased()
+        let category =
+            reply.contains("not connected")
+            ? "authenticated_not_connected"
+            : (isAuthenticationError(error) ? "authentication" : "other")
+        logger.notice("event=xoauth2_failed category=\(category, privacy: .public)")
     }
 
     private static func isAuthenticationError(_ error: Error) -> Bool {
