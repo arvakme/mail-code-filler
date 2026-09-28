@@ -157,6 +157,7 @@ struct DeliverySettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("登录与反馈", systemImage: "person.crop.circle.badge.checkmark").font(.headline)
                 LaunchAtLoginSettingsView(manager: model.loginManager)
+                    .disabled(model.isOfflinePreview)
                 Button("最近邮件里有验证码或登录链接没识别出来？", action: onOpenSamples)
                     .buttonStyle(.link)
                 Text("样本仅在选择邮件后只读重取，脱敏预览经你确认才保存到本机。")

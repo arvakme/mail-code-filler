@@ -54,6 +54,7 @@ if $autofill && ! $compile_only; then
   python3 scripts/verify-autofill.py "$settings" --configuration-only
 fi
 xcodebuild "${args[@]}" build
+python3 scripts/verify-launch-agent.py "$settings"
 if $compile_only; then
   echo 'Compile-only succeeded. This unsigned app is not runnable delivery.'
 else

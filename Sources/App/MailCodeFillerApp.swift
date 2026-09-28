@@ -6,7 +6,11 @@ struct MailCodeFillerApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            ContentView(model: delegate.model)
+            if delegate.model.isStarting {
+                Text("正在启动…").padding()
+            } else {
+                ContentView(model: delegate.model)
+            }
         } label: {
             Image(
                 systemName: delegate.model.isDoNotDisturbActive

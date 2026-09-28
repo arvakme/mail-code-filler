@@ -123,6 +123,10 @@ struct ContentView: View {
                 .buttonStyle(.glass)
                 .accessibilityLabel("识别与提示设置")
             }
+            if model.recoveredFromUnexpectedExit {
+                Text("上次意外退出，已自动恢复")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if model.isOfflinePreview {
                 Label("离线预览 · 不读取邮箱或钥匙串", systemImage: "testtube.2")
                     .font(.callout).foregroundStyle(.secondary)

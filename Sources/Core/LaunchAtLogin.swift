@@ -7,18 +7,29 @@ public enum LaunchAtLoginStatus: Equatable, Sendable {
     case notFound
 }
 
+public enum LaunchAtLoginError: Error {
+    case changesDisabled
+}
+
 @MainActor
 public protocol LaunchAtLoginBackend: AnyObject {
     var status: LaunchAtLoginStatus { get }
-    func register() throws
-    func unregister() throws
+    func register() async throws
+    func unregister() async throws
+    func finishChanges()
     func openSettings()
+}
+
+extension LaunchAtLoginBackend {
+    public func finishChanges() {}
 }
 
 @MainActor
 public protocol LaunchAtLoginManaging: AnyObject {
-    func refresh() -> LaunchAtLoginStatus
-    @discardableResult func setEnabled(_ enabled: Bool) throws -> LaunchAtLoginStatus
+    var status: LaunchAtLoginStatus { get }
+    var hasError: Bool { get }
+    func refresh() async -> LaunchAtLoginStatus
+    @discardableResult func setEnabled(_ enabled: Bool) async throws -> LaunchAtLoginStatus
     func openSettings()
 }
 
@@ -26,23 +37,69 @@ public protocol LaunchAtLoginManaging: AnyObject {
 @MainActor
 public final class LaunchAtLoginController: LaunchAtLoginManaging {
     private let backend: any LaunchAtLoginBackend
+    private let legacyBackend: (any LaunchAtLoginBackend)?
+    private let allowsChanges: Bool
+    public private(set) var hasError = false
+    public var status: LaunchAtLoginStatus { backend.status }
 
-    public init(backend: any LaunchAtLoginBackend) {
+    public init(
+        backend: any LaunchAtLoginBackend,
+        legacyBackend: (any LaunchAtLoginBackend)? = nil,
+        allowsChanges: Bool = true
+    ) {
         self.backend = backend
+        self.legacyBackend = legacyBackend
+        self.allowsChanges = allowsChanges
     }
 
-    public func refresh() -> LaunchAtLoginStatus { backend.status }
-
-    @discardableResult
-    public func setEnabled(_ enabled: Bool) throws -> LaunchAtLoginStatus {
-        let status = backend.status
-        if enabled {
-            if status == .notRegistered || status == .notFound { try backend.register() }
-        } else if status != .notRegistered && status != .notFound {
-            try backend.unregister()
+    public func refresh() async -> LaunchAtLoginStatus {
+        guard allowsChanges else { return backend.status }
+        defer { backend.finishChanges() }
+        do {
+            try await migrateLegacyRegistration()
+            hasError = false
+        } catch {
+            hasError = true
         }
         return backend.status
     }
 
-    public func openSettings() { backend.openSettings() }
+    @discardableResult
+    public func setEnabled(_ enabled: Bool) async throws -> LaunchAtLoginStatus {
+        guard allowsChanges else { throw LaunchAtLoginError.changesDisabled }
+        defer { backend.finishChanges() }
+        do {
+            if enabled {
+                try await migrateLegacyRegistration()
+                if backend.status == .notRegistered || backend.status == .notFound {
+                    try await backend.register()
+                }
+            } else {
+                if let legacyBackend, isRegistered(legacyBackend.status) {
+                    try await legacyBackend.unregister()
+                }
+                if isRegistered(backend.status) { try await backend.unregister() }
+            }
+            hasError = false
+            return backend.status
+        } catch {
+            hasError = true
+            throw error
+        }
+    }
+
+    public func openSettings() {
+        if allowsChanges { backend.openSettings() }
+    }
+
+    private func migrateLegacyRegistration() async throws {
+        guard let legacyBackend, isRegistered(legacyBackend.status) else { return }
+        // Keep the existing login item until its replacement has registered successfully.
+        if !isRegistered(backend.status) { try await backend.register() }
+        if isRegistered(legacyBackend.status) { try await legacyBackend.unregister() }
+    }
+
+    private func isRegistered(_ status: LaunchAtLoginStatus) -> Bool {
+        status == .enabled || status == .requiresApproval
+    }
 }

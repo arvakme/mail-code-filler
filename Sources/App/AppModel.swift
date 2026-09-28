@@ -35,7 +35,9 @@ final class AppModel {
     let vault = CandidateVault()
     let codeWaitController = CodeWaitModeController()
     let recentMissedMail = RecentMissedMailRing()
-    let loginManager = LaunchAtLoginController(backend: SMAppLaunchAtLogin())
+    let loginManager: LaunchAtLoginController
+    var isStarting = true
+    var recoveredFromUnexpectedExit = false
     @ObservationIgnored lazy var activePageProvider = BrowserActivePageProvider { [weak self] in
         self?.settings.allowsBrowserAutomation ?? false
     }
@@ -79,7 +81,8 @@ final class AppModel {
     @ObservationIgnored private var doNotDisturbTimer: Task<Void, Never>?
     @ObservationIgnored lazy var fillCoordinator = FillCoordinator(vault: vault)
 
-    init() {
+    init(loginManager: LaunchAtLoginController) {
+        self.loginManager = loginManager
         let preferences =
             isOfflinePreview
             ? UserDefaults(suiteName: "dev.zhijie.MailCodeFiller.offline-preview")! : .standard
@@ -138,6 +141,7 @@ final class AppModel {
     func start() {
         if supportsAutoFill && !isOfflinePreview { configureAutoFill() }
         if !isOfflinePreview {
+            Task { await loginManager.refresh() }
             restoreJev()
             restoreAccounts()
         }

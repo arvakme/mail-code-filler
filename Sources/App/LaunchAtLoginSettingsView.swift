@@ -6,22 +6,29 @@ struct LaunchAtLoginSettingsView: View {
     let manager: any LaunchAtLoginManaging
     @State private var status: LaunchAtLoginStatus = .notRegistered
     @State private var hasError = false
+    @State private var isUpdating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(
-                "登录时启动",
+                "登录时启动并在意外退出后自动恢复",
                 isOn: Binding(
                     get: { status == .enabled || status == .requiresApproval },
                     set: { enabled in
-                        do {
-                            status = try manager.setEnabled(enabled)
-                            hasError = false
-                        } catch {
-                            status = manager.refresh()
-                            hasError = true
+                        isUpdating = true
+                        Task {
+                            defer { isUpdating = false }
+                            do {
+                                status = try await manager.setEnabled(enabled)
+                                hasError = false
+                            } catch {
+                                status = manager.status
+                                hasError = true
+                            }
                         }
-                    }))
+                    })
+            )
+            .disabled(isUpdating)
             if status == .requiresApproval {
                 Text("已添加，需要在系统设置 → 通用 → 登录项中允许。")
                     .font(.caption).foregroundStyle(.secondary)
@@ -36,10 +43,16 @@ struct LaunchAtLoginSettingsView: View {
                     .font(.caption).foregroundStyle(.orange)
             }
         }
-        .task { status = manager.refresh() }
+        .task { await refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) {
             _ in
-            status = manager.refresh()
+            guard !isUpdating else { return }
+            Task { await refresh() }
         }
+    }
+
+    private func refresh() async {
+        status = await manager.refresh()
+        hasError = manager.hasError
     }
 }

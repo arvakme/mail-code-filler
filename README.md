@@ -24,6 +24,22 @@ open "build/LocalDerivedData/Build/Products/Debug/Mail Code Filler.app"
 
 `CONFIGURATION=Release` 可选择优化构建；`DERIVED_DATA_PATH` 可指定独立目录，不能指向正在运行的 App。`scripts/build.sh --compile-only` 只检查编译，未签名产物不用于交付。公开分发不在当前范围，开发签名不能替代 Developer ID、公证和 Gatekeeper 验证。
 
+## 登录启动与意外退出恢复
+
+在「识别与提示 → 登录与反馈」开启「登录时启动并在意外退出后自动恢复」。同一个开关控制登录启动和崩溃恢复，默认关闭。旧版已启用的 `SMAppService.mainApp` 登录项会在正常启动时迁移：先成功注册新的 agent，再删除旧项；迁移失败保留原登录项并在设置显示错误。需要审批时显示「打开登录项设置」，由用户在系统设置允许。
+
+App 包内的 `Contents/Library/LaunchAgents/dev.zhijie.MailCodeFiller.agent.plist` 使用 `SMAppService.agent(plistName:)` 注册，`BundleProgram` 相对 App 包指向主程序。launchd 在登录时启动它，非零退出或崩溃信号后按约 10 秒的节流策略重启。点击「退出」正常返回状态 0，所以保持退出；AutoFill 撤回失败时选择「保留 App」会取消退出，账户继续运行。无账户也会启动，可随后添加账户。
+
+开关变更通过最多 10 秒的交接完成：开启时，旧手动实例写入包含旧 PID、目标启动方式和期限的临时标记，注册 agent，待注册已获允许后正常退出；agent 新实例等旧 PID 退出才恢复账户。关闭时，先启动一个普通新实例，再注销 agent（系统会结束受监督的旧进程），普通实例等它结束后继续运行。AutoFill 的「保留 App」也会在交接开始前取消操作。注册失败或尚待审批时当前 App 继续运行。交接标记过期、PID 或目标方式不匹配时，重复实例以状态 0 退出，不恢复账户、不改关闭标记。
+
+每次正常启动清除干净关闭标记，真正终止时写回；首次启动和正常退出后不提示，意外退出后的下一次启动在菜单栏面板显示一行「上次意外退出，已自动恢复」。主动交接不显示这条提示，不上传崩溃报告。`--offline-preview` 不迁移、注册或注销 agent，也不读写正式关闭/交接标记；对应设置不可操作。
+
+agent 使用注册它的那一份 App。开发产物经常位于 `build/RoundNN`；移动 App 或切换构建副本后，应先退出旧副本、从新位置打开 App，再关掉并重新开启该开关。`BundleProgram` 支持包内相对路径，不能据此假定系统已换到新的构建副本。已有同 bundle id 的普通实例会阻止重复启动。
+
+边界：主动退出受监督实例后，手动重新打开的 App 不会自动交回 launchd；在它重新开关该设置、或下次登录前不保证崩溃恢复。审批耗时超过交接期限时同样需重新开关或重新登录。本版本没有自动执行 `launchctl kickstart`。
+
+实机验证（本轮开发检查不启动 App、不注册 launchd）：开启并允许该设置后，在活动监视器或 `pgrep -fl 'Mail Code Filler'` 确认只有一个实际实例，用 `kill -SEGV <pid>` 模拟崩溃，确认新 PID、恢复提示和账户恢复；点击「退出」后等待超过 10 秒，应持续退出。再核对关闭开关后普通实例仍运行、它异常退出不会被重启；测试无账户启动、重复打开、交接失败/过期，以及 AutoFill 撤回失败时「保留 App」不退出。系统审批、登录启动和实际 UI 仍需用户验收。
+
 ## 邮箱账户：Gmail、QQ、iCloud 与网易邮箱
 
 在菜单栏面板的“邮箱账户”中点击“添加邮箱”，选择 Gmail、QQ、iCloud 或网易邮箱（163 / 126 / yeah.net）。可以添加多个账户；每个账户有独立的连接状态、暂停状态与钥匙串项目。

@@ -12,7 +12,13 @@ targetTemplates:
   Host:
     type: application
     platform: macOS
-    sources: [Sources/App]
+    sources:
+      - path: Sources/App
+      - path: Config/dev.zhijie.MailCodeFiller.agent.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchAgents
     dependencies:
       - package: MailCodeCore
         product: MailCodeCore
