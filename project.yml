@@ -14,6 +14,9 @@ targetTemplates:
     platform: macOS
     sources:
       - path: Sources/App
+      - path: Config/AppIcon.icon
+        type: file
+        buildPhase: resources
       - path: Config/dev.zhijie.MailCodeFiller.agent.plist
         buildPhase:
           copyFiles:
@@ -32,6 +35,7 @@ targetTemplates:
         PRODUCT_NAME: Mail Code Filler
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Config/Host-Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
 targets:
   MailCodeFillerLocal:

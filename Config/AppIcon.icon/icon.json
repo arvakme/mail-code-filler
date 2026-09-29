@@ -1,0 +1,80 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.21176,0.81569,0.80000,1.00000",
+      "srgb:0.02353,0.42353,0.45882,1.00000"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.76,
+        "y": 1
+      }
+    }
+  },
+  "groups": [
+    {
+      "name": "Bolt",
+      "layers": [
+        {
+          "name": "Bolt",
+          "image-name": "Bolt.svg",
+          "glass": true,
+          "fill-specializations": [
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "srgb:0.25000,0.25000,0.25000,1.00000"
+              }
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.28
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.08
+      },
+      "specular": true,
+      "shadow-specializations": [
+        {
+          "appearance": "tinted",
+          "value": {
+            "kind": "neutral",
+            "opacity": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "name": "Envelope",
+      "layers": [
+        {
+          "name": "Envelope",
+          "image-name": "Envelope.svg",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.28
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.13
+      },
+      "specular": true
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

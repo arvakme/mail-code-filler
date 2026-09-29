@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g id="envelope">
+    <rect x="214" y="343" width="596" height="354" rx="64" fill="#E4FFFA"/>
+    <path d="M242 665 L480 527.08 Q512 505.84 544 527.08 L782 665" fill="none" stroke="#087780" stroke-width="18" stroke-opacity=".12" stroke-linejoin="round"/>
+    <path d="M236 373 L481 519.7 Q512 545.7 543 519.7 L788 373" fill="none" stroke="#087780" stroke-width="24" stroke-opacity=".7" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+</svg>
